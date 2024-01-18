@@ -1,9 +1,23 @@
-version: '3.7'
+version: '3.9'
+
+networks:
+    n1:
+        name: n1
+
 services:    
     serv:        
-        build: server
+        build: ./server
+        image: serv
+        container_name: serv
     
-    # lb:
-    #     build: lb
-    #     ports:
-    #         - "5000:5000"
+    lb:
+        build: ./lb
+        image: lb
+        container_name: lb
+        ports:
+            - "5000:5000"
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+        privileged: true
+        networks:
+            n1: {}

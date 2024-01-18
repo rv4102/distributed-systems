@@ -11,7 +11,7 @@ class ConsistentHashMap:
         server_containers: list of server containers
     """
 
-    def __init__(self, num_server_containers = 3, num_virtual_servers = 9, num_slots = 512) -> None:
+    def __init__(self, num_server_containers : int = 3, num_virtual_servers = 9, num_slots = 512) -> None:
         """
         The constructor for ConsistentHashMap class.
         :param num_server_containers: number of server containers
