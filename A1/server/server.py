@@ -1,12 +1,15 @@
 import os
 from flask import Flask
+# from dotenv import load_dotenv
 
 app = Flask(__name__)
+# load_dotenv()  # take environment variables from .env.
 
 @app.route('/home', methods=['GET'])
 def home():
-    SERV_ID = os.environ.get("SERV_ID")
-    response = {"message": f"Hello from Server: {SERV_ID}",
+    # get server id using dotenv
+    serv_id = os.environ.get("SERV_ID")
+    response = {"message": f"Hello from Server: {serv_id}",
                 "status": "successful"}
     return response, 200
 

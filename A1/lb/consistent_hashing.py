@@ -8,7 +8,6 @@ class ConsistentHashMap:
         num_server_containers: number of server containers
         num_virtual_servers: number of virtual servers per server container
         num_slots: number of slots in the consistent hash map
-        server_containers: list of server containers
     """
 
     def __init__(self, num_server_containers : int = 3, num_virtual_servers = 9, num_slots = 512) -> None:
@@ -25,7 +24,7 @@ class ConsistentHashMap:
         # we create two arrays, one for storing the node themselves, and the other for storing the index of each server in the consistent hash map
         self.sorted_keys = SortedList()
         self.ring = [None] * self.num_slots
-        self.server_nodes = [] * self.num_server_containers
+        # self.server_nodes = [] * self.num_server_containers
         self.server_indexes = {}
 
 

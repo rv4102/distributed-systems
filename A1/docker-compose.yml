@@ -8,12 +8,15 @@ services:
     serv:        
         build: ./server
         image: serv
-        container_name: serv
     
     lb:
         build: ./lb
         image: lb
         container_name: lb
+        environment:
+            - NUM_SERV=3
+            - NUM_VIRT_SERV=9
+            - SLOTS=512
         ports:
             - "5000:5000"
         volumes:

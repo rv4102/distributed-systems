@@ -2,9 +2,10 @@ from consistent_hashing import ConsistentHashMap
 from flask import Flask, jsonify, redirect, request
 import docker
 import random
+import os
 
 app = Flask(__name__)
-ch = ConsistentHashMap()
+ch = None
 client = docker.from_env()
 network = "a1_default"
 image = "serv"
@@ -82,15 +83,25 @@ def remove():
     num_rm_servers = data['n']
     rm_servers = data['hostnames']
 
+    # if there are more servers in rm_servers than the number of servers in the network, then throw error
     if num_rm_servers < len(rm_servers):
         response = jsonify({'message': '<Error> Length of hostname list is more than removable instances', 
                     'status': 'failure'})
         response.status_code = 400
         return response
+    
+    # if there is a server in rm_servers that is not present in containers, then throw error
+    containers = client.containers.list(filters={'network':network})
+    containers = [container.name for container in containers]
+    for server in rm_servers:
+        if server not in containers:
+            response = jsonify({'message': '<Error> Server not found', 
+                        'status': 'failure'})
+            response.status_code = 400
+            return response
 
+    # if there are not enough servers in rm_servers, then randomly select servers from containers
     if num_rm_servers > len(rm_servers):
-        containers = client.containers.list(filters={'network':network})
-        containers = [container.name for container in containers]
         other_servers = list(set(containers) - set(rm_servers))
         num_needed = num_rm_servers - len(rm_servers)
 
@@ -99,12 +110,6 @@ def remove():
 
     for server in rm_servers:
         # remove the server from the consistent hash map
-        if server not in server_hostname_to_id:
-            response = jsonify({'message': '<Error> Server not found', 
-                        'status': 'failure'})
-            response.status_code = 400
-            return response
-        
         server_id = server_hostname_to_id[server]
         ch.remove_server(server_id)
         server_id_to_hostname.pop(server_id)
@@ -159,4 +164,17 @@ def get(path='home'):
 
 
 if __name__ == '__main__':
+    ch = ConsistentHashMap(int(os.environ['NUM_SERV']), 
+                           int(os.environ['NUM_VIRT_SERV']), 
+                           int(os.environ['SLOTS']))
+
+    # # get the list of containers and their SERV_IDs
+    # containers = client.containers.list(filters={'network':network})
+    # for container in containers:
+    #     server_id = container.exec_run(cmd="bash -c 'echo \"$SERV_ID\"'").output.decode('utf-8')
+    #     server_id = int(server_id)
+    #     server_id_to_hostname[server_id] = container.name
+    #     server_hostname_to_id[container.name] = server_id
+    #     ch.add_server(server_id)
+
     app.run(host='0.0.0.0', port=5000)
