@@ -31,7 +31,7 @@ async def main():
     dic = {}
     async with aiohttp.ClientSession() as session:
         tasks = []
-        for _ in range(10):
+        for _ in range(1000):
             # generate a random url from urls list
             tasks.append(request(session, url))
         responses = await asyncio.gather(*tasks)
@@ -48,9 +48,14 @@ async def main():
     print(dic)
     # plot the histogram of server ids
     plt.bar(dic.keys(), dic.values(), color='g')
-    plt.show()
     # save it to a file
+    # label axis
+    plt.xlabel('Server ID')
+    plt.ylabel('Number of requests')
+
     plt.savefig("stats.png")
+
+    plt.show()
 
 if __name__ == '__main__':
     asyncio.run(main())
