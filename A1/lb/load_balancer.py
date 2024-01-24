@@ -1,91 +1,141 @@
 from consistent_hashing import ConsistentHashMap
-from flask import Flask, jsonify, redirect, request
-from threading import Thread
+from quart import Quart, jsonify, Response
+import asyncio
+import aiohttp
 import docker
 import random
 import os
 
-app = Flask(__name__)
-ch = None
-client = docker.from_env()
 network = "n1"
 image = "serv"
-
+app = Quart(__name__)
+ch = None
+client = docker.from_env()
 server_id_to_hostname = {}
 server_hostname_to_id = {}
 
+async def check_heartbeat(server_name = None):
+    url = f'http://{server_name}:5000/heartbeat'
+    try:
+        async with aiohttp.ClientSession() as client_session:
+            async with client_session.get(url) as response:
+                if response.status == 200:
+                    return True
+                else:
+                    return False
+    except Exception as e:
+        return False
+
+async def periodic_server_monitor(interval = 1):
+    while True:
+        dead_servers = []
+        tasks = [check_heartbeat(server_name) for server_name in server_hostname_to_id.keys()]
+        results = await asyncio.gather(*tasks)
+        results = zip(server_hostname_to_id.keys(), results)
+        for server_name, result in results:
+            if result == False:
+                server_id = server_hostname_to_id[server_name]
+                ch.remove_server(server_id)
+                dead_servers.append(server_name)
+        
+        for server_name in dead_servers:
+            server_id = server_hostname_to_id[server_name]
+
+            try:
+                res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
+            except Exception as e:
+                print(e)
+
+            ch.add_server(server_id)
+        
+        await asyncio.sleep(interval)
+
 @app.route('/rep', methods=['GET'])
 def rep():
-    # get all containers in the docker internal network
-    containers = client.containers.list(filters={'network':network})
-    
+    containers = server_hostname_to_id.keys()
+
     message = {
         'N': len(containers)-1,
-        'replicas': [container.name for container in containers if container.name != os.environ['HOSTNAME']]
+        'replicas': list(containers)
     }
 
-    response = jsonify({'message': message, 'status': 'successful'})
+    response = jsonify(message = message, status = 'successful')
     response.status_code = 200
     return response
 
 
 @app.route('/add', methods=['POST'])
-def add():
-    # get the request data
-    data = request.get_json()
-    num_new_servers = data['n']
-    new_servers = data['hostnames']
+def add(payload = None):
+    num_new_servers = payload['n']
+    new_servers = payload['hostnames']
 
-    if num_new_servers != len(new_servers):
-        response = jsonify({'message': '<Error> Length of hostname list does not match number of newly added instances', 
-                    'status': 'failure'})
+    if num_new_servers is None or new_servers is None:
+        response = jsonify(message = '<Error> Invalid payload', status = 'failure')
         response.status_code = 400
         return response
 
-    for server in new_servers:
-        server_id = random.randint(100000, 999999)
+    if num_new_servers < len(new_servers):
+        response = jsonify(message = '<Error> Length of hostname list does not match number of newly added instances', status = 'failure')
+        response.status_code = 400
+        return response
+    
+    # if there are more servers in new_servers than the number of server names specified, then generate random names for the rest
+    if num_new_servers > len(new_servers):
+        for i in range(num_new_servers - len(new_servers)):
+            server_id = random.randint(100000, 999999)
+            server_name = f'serv_{server_id}'
+            new_servers.append(server_name)
+            server_hostname_to_id[server_name] = server_id
+            server_id_to_hostname[server_id] = server_name
 
-        # spawn docker containers for the new servers
+    for server_name in new_servers:
+        server_id = server_hostname_to_id[server_name]
+        if server_id is None:
+            server_id = random.randint(100000, 999999)
+            
         try:
-            res = client.containers.run(image=image, name=server, network=network, detach=True, environment={'SERV_ID': server_id})
+            res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
         except Exception as e:
             print(e)
-            response = jsonify({'message': '<Error> Failed to spawn new docker container', 
-                        'status': 'failure'})
+            response = jsonify(message = '<Error> Failed to spawn new docker container', 
+                            status = 'failure')
             response.status_code = 400
             return response
 
         # add the new servers to the consistent hash map
         ch.add_server(server_id)
-        server_id_to_hostname[server_id] = server
-        server_hostname_to_id[server] = server_id
+        server_id_to_hostname[server_id] = server_name
+        server_hostname_to_id[server_name] = server_id
 
     print("added containers")
 
-    return redirect('http://localhost:5000/rep')
+    return rep
 
 
 @app.route('/rm', methods=['DELETE'])
-def remove():
-    # get the request data
-    data = request.get_json()
-    num_rm_servers = data['n']
-    rm_servers = data['hostnames']
+def remove(payload = None):
+    num_rm_servers = payload['n']
+    rm_servers = payload['hostnames']
+
+    if num_rm_servers is None or rm_servers is None:
+        response = jsonify(message = '<Error> Invalid payload', 
+                    status = 'failure')
+        response.status_code = 400
+        return response
 
     # if there are more servers in rm_servers than the number of servers in the network, then throw error
     if num_rm_servers < len(rm_servers):
-        response = jsonify({'message': '<Error> Length of hostname list is more than removable instances', 
-                    'status': 'failure'})
+        response = jsonify(message = '<Error> Length of hostname list is more than removable instances', 
+                    status = 'failure')
         response.status_code = 400
         return response
     
     # if there is a server in rm_servers that is not present in containers, then throw error
-    containers = client.containers.list(filters={'network':network})
-    containers = [container.name for container in containers]
+    containers = server_hostname_to_id.keys()
     for server in rm_servers:
         if server not in containers:
-            response = jsonify({'message': '<Error> Server not found', 
-                        'status': 'failure'})
+            response = jsonify(message = '<Error> Server not found', 
+                        status = 'failure')
             response.status_code = 400
             return response
 
@@ -111,91 +161,60 @@ def remove():
             container.remove()
         except Exception as e:
             print(e)
-            response = jsonify({'message': '<Error> Failed to remove docker container', 
-                        'status': 'failure'})
+            response = jsonify(message = '<Error> Failed to remove docker container', 
+                        status = 'failure')
             response.status_code = 400
             return response
 
-    return redirect('http://localhost:5000/rep')
+    return rep
 
 
 @app.route('/<path:path>', methods=['GET'])
-def get(path='home'):
+async def get(path='home'):
     if not (path == 'home' or path == 'heartbeat'):
-        response = jsonify({'message': '<Error> Invalid path', 'status': 'failure'})
-        response.status_code = 400
+        response = jsonify(message = '<Error> Invalid path', status = 'failure')
+        response.status_code = 404
         return response
     
     if len(server_id_to_hostname) == 0:
-        response = jsonify({'message': '<Error> No servers created', 'status': 'failure'})
+        response = jsonify(message = '<Error> No servers created', status = 'failure')
         response.status_code = 400
         return response
 
-    # generate a 6 digit random number
-    request_id = random.randint(100000, 999999)
-    
-    # get the server instance to handle this request
+    request_id = random.randint(100000, 999999)    
     server_id = ch.get_server(request_id=request_id)
     server = server_id_to_hostname[server_id]
 
     # send the request to the server instance
     url = f'http://{server}:5000/{path}'
-    return redirect(url)
+    try:
+        async with aiohttp.ClientSession() as client_session:
+            async with client_session.get(url) as response:
+                content = await response.read()
+                return Response(content, status=response.status, headers = dict(response.headers))
 
-def lb_management_thread():
-    while True:
-        containers = client.containers.list(filters={'network':network})
-        
-        # remove any dead servers from Consistent Hash Map
-        for container in containers:
-            if container.status != 'running':
-                server_id = server_hostname_to_id[container.name]
-                ch.remove_server(server_id)
-                server_id_to_hostname.pop(server_id)
-                server_hostname_to_id.pop(container.name)
+    except Exception as e:
+        response = jsonify(message = f"{str(e)} Error in handling request", status = "failure")
+        response.status_code = 400
+        return response
 
-        # add new servers if they are less than the required threshold
-        num_servers = len(containers) - 1 # 1 of these is the load balancer container
-
-        if num_servers >= int(os.environ['NUM_SERV']):
-            continue
-
-        num_required = int(os.environ['NUM_SERV']) - num_servers
-
-        for i in range(num_required):
-            server_id = random.randint(100000, 999999)
-            server_name = f'serv_{server_id}'
-
-            # spawn docker containers for the new servers
-            try:
-                res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
-            except Exception as e:
-                print(e)
-                continue
-
-            # add the new servers to the consistent hash map
-            ch.add_server(server_id)
-            server_id_to_hostname[server_id] = server_name
-            server_hostname_to_id[server_name] = server_id
-        
-        print(f"spawned {num_required} servers")
+@app.before_serving
+async def startup():
+    loop = asyncio.get_event_loop()
+    loop.create_task(periodic_server_monitor())
 
 if __name__ == '__main__':
     ch = ConsistentHashMap(int(os.environ['NUM_SERV']), 
                            int(os.environ['NUM_VIRT_SERV']), 
                            int(os.environ['SLOTS']))
 
-    monitoring_thread = Thread(target=lb_management_thread)
-    monitoring_thread.daemon = True  # The thread will be terminated when the main program exits
-    monitoring_thread.start()
-
-    # # get the list of containers and their SERV_IDs
-    # containers = client.containers.list(filters={'network':network})
-    # for container in containers:
-    #     server_id = container.exec_run(cmd="bash -c 'echo \"$SERV_ID\"'").output.decode('utf-8')
-    #     server_id = int(server_id)
-    #     server_id_to_hostname[server_id] = container.name
-    #     server_hostname_to_id[container.name] = server_id
-    #     ch.add_server(server_id)
+    for i in range(int(os.environ['NUM_SERV'])):
+        server_id = random.randint(100000, 999999)
+        server_name = f'serv_{server_id}'
+        server_id_to_hostname[server_id] = server_name
+        server_hostname_to_id[server_name] = server_id
+        ch.add_server(server_id)
 
     app.run(host='0.0.0.0', port=5000)
+
+    
