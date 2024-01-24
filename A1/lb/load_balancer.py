@@ -138,7 +138,9 @@ def get(path='home'):
     server_id = ch.get_server(request_id=request_id)
     server = server_id_to_hostname[server_id]
 
-    return redirect('http://localhost:5000/rep')
+    # send the request to the server instance
+    url = f'http://{server}:5000/{path}'
+    return redirect(url)
 
 def lb_management_thread():
     while True:
