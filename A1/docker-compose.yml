@@ -8,6 +8,8 @@ services:
     serv:        
         build: ./server
         image: serv
+        networks:
+            n1: {}
     
     lb:
         build: ./lb
