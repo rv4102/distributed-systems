@@ -21,5 +21,6 @@ def heartbeat():
     print(r.json())
 
 if __name__ == '__main__':
-    rm(1, ["s3"])
-    # rep()
+    # rm(1, ["s3"])
+    # add(3, ["s1", "s2", "s3"])
+    home()

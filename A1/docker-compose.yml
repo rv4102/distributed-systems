@@ -17,6 +17,7 @@ services:
             - NUM_SERV=3
             - NUM_VIRT_SERV=9
             - SLOTS=512
+            - HOSTNAME=lb
         ports:
             - "5000:5000"
         volumes:

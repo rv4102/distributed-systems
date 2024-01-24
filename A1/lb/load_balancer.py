@@ -1,5 +1,6 @@
 from consistent_hashing import ConsistentHashMap
 from flask import Flask, jsonify, redirect, request
+from threading import Thread
 import docker
 import random
 import os
@@ -7,7 +8,7 @@ import os
 app = Flask(__name__)
 ch = None
 client = docker.from_env()
-network = "a1_default"
+network = "n1"
 image = "serv"
 
 server_id_to_hostname = {}
@@ -19,8 +20,8 @@ def rep():
     containers = client.containers.list(filters={'network':network})
     
     message = {
-        'N': len(containers),
-        'replicas': [container.name for container in containers]
+        'N': len(containers)-1,
+        'replicas': [container.name for container in containers if container.name != os.environ['HOSTNAME']]
     }
 
     response = jsonify({'message': message, 'status': 'successful'})
@@ -61,19 +62,7 @@ def add():
 
     print("added containers")
 
-    # get the updated list of containers
-    containers = client.containers.list(filters={'network':network})
-
-    message = {
-        'N': len(containers),
-        'replicas': [container.name for container in containers]
-    }
-
-    print("sending response")
-
-    response = jsonify({'message': message, 'status': 'successful'})
-    response.status_code = 200
-    return response
+    return redirect('http://localhost:5000/rep')
 
 
 @app.route('/rm', methods=['DELETE'])
@@ -127,16 +116,7 @@ def remove():
             response.status_code = 400
             return response
 
-    # get the updated list of containers
-    containers = client.containers.list(filters={'network':network})
-    message = {
-        'N': len(containers),
-        'replicas': [container.name for container in containers]
-    }
-
-    response = jsonify({'message': message, 'status': 'successful'})
-    response.status_code = 200
-    return response
+    return redirect('http://localhost:5000/rep')
 
 
 @app.route('/<path:path>', methods=['GET'])
@@ -158,15 +138,54 @@ def get(path='home'):
     server_id = ch.get_server(request_id=request_id)
     server = server_id_to_hostname[server_id]
 
-    # send the request to the server instance
-    url = f'http://{server}:5000/{path}'
-    return redirect(url)
+    return redirect('http://localhost:5000/rep')
 
+def lb_management_thread():
+    while True:
+        containers = client.containers.list(filters={'network':network})
+        
+        # remove any dead servers from Consistent Hash Map
+        for container in containers:
+            if container.status != 'running':
+                server_id = server_hostname_to_id[container.name]
+                ch.remove_server(server_id)
+                server_id_to_hostname.pop(server_id)
+                server_hostname_to_id.pop(container.name)
+
+        # add new servers if they are less than the required threshold
+        num_servers = len(containers) - 1 # 1 of these is the load balancer container
+
+        if num_servers >= int(os.environ['NUM_SERV']):
+            continue
+
+        num_required = int(os.environ['NUM_SERV']) - num_servers
+
+        for i in range(num_required):
+            server_id = random.randint(100000, 999999)
+            server_name = f'serv_{server_id}'
+
+            # spawn docker containers for the new servers
+            try:
+                res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
+            except Exception as e:
+                print(e)
+                continue
+
+            # add the new servers to the consistent hash map
+            ch.add_server(server_id)
+            server_id_to_hostname[server_id] = server_name
+            server_hostname_to_id[server_name] = server_id
+        
+        print(f"spawned {num_required} servers")
 
 if __name__ == '__main__':
     ch = ConsistentHashMap(int(os.environ['NUM_SERV']), 
                            int(os.environ['NUM_VIRT_SERV']), 
                            int(os.environ['SLOTS']))
+
+    monitoring_thread = Thread(target=lb_management_thread)
+    monitoring_thread.daemon = True  # The thread will be terminated when the main program exits
+    monitoring_thread.start()
 
     # # get the list of containers and their SERV_IDs
     # containers = client.containers.list(filters={'network':network})
