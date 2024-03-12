@@ -1,0 +1,35 @@
+{
+    "schema": {
+        "columns": [
+            "Stud_id",
+            "Stud_name",
+            "Stud_marks"
+        ],
+        "dtypes": [
+            "Number",
+            "String",
+            "String"
+        ]
+    },
+    "shards": [
+        "sh1",
+        "sh2"
+    ]
+},
+
+{
+    "shard": "sh1",
+    "curr_idx": 500,
+    "data": [
+        {
+            "Stud_id": 2255,
+            "Stud_name": "GHI",
+            "Stud_marks": "27"
+        },
+        {
+            "Stud_id": 2337,
+            "Stud_name": "RUSHIL",
+            "Stud_marks": "40"
+        }
+    ]
+}
