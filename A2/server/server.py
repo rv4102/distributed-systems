@@ -31,7 +31,10 @@ async def config(payload = None):
         for shard in shards:
             query = f"CREATE TABLE IF NOT EXISTS {shard} ("
             for i in range(len(columns)):
-                query += f"{columns[i]} {dtypes[i]}, "
+                if columns[i] == "Stud_id":
+                    query += f"{columns[i]} {dtypes[i]} PRIMARY KEY, "
+                else:
+                    query += f"{columns[i]} {dtypes[i]}, "
             query = query[:-2] + ")"
 
             cursor.execute(query)
@@ -155,8 +158,8 @@ async def delete(payload = None):
 
     # delete data
     with connection.cursor() as cursor:
-        sql = "DELETE FROM %s WHERE Stud_id = %s"
-        cursor.execute(sql, (shard, Stud_id))
+        query = f"DELETE FROM {shard} WHERE Stud_id = {Stud_id}"
+        cursor.execute(query)
     connection.commit()
     
     # response
