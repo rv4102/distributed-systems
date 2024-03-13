@@ -161,10 +161,71 @@ async def add(payload = None):
     return response
 
 
-@app.route('/rm', methods=['PUT'])
+@app.route('/rm', methods=['DELETE'])
 async def rm(payload = None):
     payload = await request.get_json()
+    num_rm_servers = payload['n']
+    rm_servers = payload['servers']
+
+    if num_rm_servers is None or rm_servers is None:
+        response = jsonify(message = '<Error> Invalid payload', 
+                    status = 'failure')
+        response.status_code = 400
+        return response
+
+    # if there are more servers in rm_servers than the number of servers in the network, then throw error
+    if num_rm_servers < len(rm_servers):
+        response = jsonify(message = '<Error> Length of hostname list is more than removable instances', 
+                    status = 'failure')
+        response.status_code = 400
+        return response
     
+    # if there is a server in rm_servers that is not present in containers, then throw error
+    containers = server_hostname_to_id.keys()
+    for server in rm_servers:
+        if server not in containers:
+            response = jsonify(message = '<Error> Server not found', 
+                        status = 'failure')
+            response.status_code = 400
+            return response
+
+    # if there are not enough servers in rm_servers, then randomly select servers from containers
+    if num_rm_servers > len(rm_servers):
+        other_servers = list(set(containers) - set(rm_servers))
+        num_needed = num_rm_servers - len(rm_servers)
+
+        # randomly select num_needed servers from other_servers
+        rm_servers += random.sample(other_servers, num_needed)
+    for server in rm_servers:
+        # remove the server from the consistent hash map
+        server_id = server_hostname_to_id[server]
+        ch.remove_server(server_id)
+        server_id_to_hostname.pop(server_id)
+        server_hostname_to_id.pop(server)
+
+        # remove the docker container
+        try:
+            container = client.containers.get(server)
+            container.stop()
+            container.remove()
+        except Exception as e:
+            print(e)
+            response = jsonify(message = '<Error> Failed to remove docker container', 
+                        status = 'failure')
+            response.status_code = 400
+            return response
+
+    containers = server_hostname_to_id.keys()
+
+    message = {
+        'N': len(containers),
+        'replicas': list(containers)
+    }
+
+    response = jsonify(message = message, status = 'successful')
+    response.status_code = 200
+    return response
+
 
 @app.route('/read', methods=['POST'])
 async def read(payload = None):
@@ -178,7 +239,7 @@ async def write(payload = None):
 async def update(payload = None):
     payload = await request.get_json()
 
-@app.route('/del', methods=['PUT'])
+@app.route('/del', methods=['DELETE'])
 async def delete(payload = None):
     payload = await request.get_json()
 
