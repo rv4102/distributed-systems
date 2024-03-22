@@ -296,18 +296,34 @@ async def rm(payload = None):
 @app.route('/read', methods=['POST'])
 async def read(payload = None):
     payload = await request.get_json()
+    stud_id = payload['Stud_id']
 
-    global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
-    await lock.acquire()
-    while write_in_progress or (writer_priority and writers_waiting > 0):
-        readers_waiting += 1
-        lock.release()
-        await asyncio.sleep(0.1)
+    low_idx = stud_id['low']
+    high_idx = stud_id['high']
+
+    # identify the shard_ids from the student_ids in the payload
+    shard_ids = []
+    for shard_id, shard_data in shard_to_data.items():
+        Stud_id_low = shard_data['Stud_id_low']
+        Stud_id_high = Stud_id_low + shard_data['Shard_size']
+        if low_idx >= Stud_id_low and high_idx < Stud_id_high:
+            shard_ids.append(shard_id)
+    
+    # retrieve data from the shards
+    for shard_id in shard_ids:
+        lock = locks[shard_id]
+        global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
         await lock.acquire()
-        readers_waiting -= 1
-    lock.release()
+        while write_in_progress or (writer_priority and writers_waiting > 0):
+            readers_waiting += 1
+            lock.release()
+            await asyncio.sleep(0.1)
+            await lock.acquire()
+            readers_waiting -= 1
+        lock.release()
 
-    # critical section for reader
+        # critical section for reader
+        # read data for 
 
     response = jsonify(message = '.', status = 'success')
     response.status_code = 200
@@ -316,6 +332,10 @@ async def read(payload = None):
 @app.route('/write', methods=['POST'])
 async def write(payload = None):
     payload = await request.get_json()
+
+
+    # identify the shard_ids from the student_ids in the payload
+
 
     global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
     await lock.acquire()
