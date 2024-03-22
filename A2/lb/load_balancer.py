@@ -51,7 +51,8 @@ async def before_critical_write(shard_id):
     locks[shard_id].release()
     return
 async def after_critical_write(shard_id):
-    write_in_progress[shard] = False
+    async with locks[shard_id]:
+        write_in_progress[shard_id] = False
 # logn wala implement kar dena uske liye dictionary ko array banana padega
 def get_shard_id(stud_id):
     for shard_id, shard_info in shard_to_data.items():
