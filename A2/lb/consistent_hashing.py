@@ -1,4 +1,5 @@
 from sortedcontainers import SortedList
+import random
 
 class ConsistentHashMap:
     """
@@ -20,6 +21,8 @@ class ConsistentHashMap:
         self.num_server_containers = num_server_containers
         self.num_virtual_servers = num_virtual_servers
         self.num_slots = num_slots
+        self.name_to_id = {}
+        self.id_to_name = {}
 
         # we create two arrays, one for storing the node themselves, and the other for storing the index of each server in the consistent hash map
         self.sorted_keys = SortedList()
@@ -78,13 +81,25 @@ class ConsistentHashMap:
                 return slot
         
         return -1
+    
+    def get_id_from_name(self, server_name: str) -> int:
+        """
+        This function is used to get the server ID from the server name.
+        :param server_name: Name of the server instance
+        :return: ID of the server instance
+        """
+        return self.name_to_id[server_name]
 
 
-    def add_server(self, server_id: int) -> None:
+    def add_server(self, server_name: str) -> None:
         """
         This function is used to add a new server instance to the consistent hash map.
-        :param server_id: ID of the new server instance
+        :param server_name: Name of the new server instance
         """
+        server_id = random.randint(100000, 999999)
+        self.name_to_id[server_name] = server_id
+        self.id_to_name[server_id] = server_name
+
         self.server_indexes[server_id] = [None] * self.num_virtual_servers
 
         for i in range(self.num_virtual_servers):
@@ -101,17 +116,22 @@ class ConsistentHashMap:
             self.server_indexes[server_id][i] = slot
 
 
-    def remove_server(self, server_id: int) -> None:
+    def remove_server(self, server_name: str) -> None:
         """
         This function is used to remove an existing server instance from the consistent hash map.
-        :param server_id: ID of the server instance to be removed
+        :param server_name: Name of the server instance to be removed
         """
+        server_id = self.name_to_id[server_name]
+
         for i in range(self.num_virtual_servers):
             slot = self.server_indexes[server_id][i]
 
             self.sorted_keys.remove(slot)
             self.ring[slot] = None
             self.server_indexes[server_id][i] = None
+        
+        del self.name_to_id[server_name]
+        del self.id_to_name[server_id]
             
 
     def get_server(self, request_id: int) -> int:
@@ -127,4 +147,5 @@ class ConsistentHashMap:
         if idx == len(self.sorted_keys):
             idx = 0
         
-        return self.ring[self.sorted_keys[idx]]
+        id = self.ring[self.sorted_keys[idx]]
+        return self.id_to_name[id]
