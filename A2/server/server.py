@@ -41,8 +41,8 @@ async def config(payload = None):
     connection.commit()
 
     # response
-    # serv_id = os.environ.get("SERV_ID")
-    serv_id = "server1"
+    serv_id = os.environ.get("SERV_ID")
+    # serv_id = "server1"
     message = ""
     for shard in shards:
         message += serv_id + f":{shard}, "
