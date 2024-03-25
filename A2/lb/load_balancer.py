@@ -43,23 +43,23 @@ image = "serv"
 #             return shard_data["Shard_id"]
 #     return None  # If no shard matches
 
-async def before_critical_write(shard_id):
-    global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
-    await locks[shard_id].acquire()
-    writers_waiting[shard_id] += 1
-    while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
-        locks[shard_id].release()
-        await asyncio.sleep(0.1)
-        await locks[shard_id].acquire()
-    writers_waiting[shard_id] -= 1
-    write_in_progress[shard_id] = True
-    locks[shard_id].release()
-    return
+# async def before_critical_write(shard_id):
+#     global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
+#     await locks[shard_id].acquire()
+#     writers_waiting[shard_id] += 1
+#     while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
+#         locks[shard_id].release()
+#         await asyncio.sleep(0.1)
+#         await locks[shard_id].acquire()
+#     writers_waiting[shard_id] -= 1
+#     write_in_progress[shard_id] = True
+#     locks[shard_id].release()
+#     return
 
-async def after_critical_write(shard_id):
-    async with locks[shard_id]:
-        write_in_progress[shard_id] = False
-    return
+# async def after_critical_write(shard_id):
+#     async with locks[shard_id]:
+#         write_in_progress[shard_id] = False
+#     return
 
 # logn wala implement kar dena uske liye dictionary ko array banana padega
 def get_shard_id(stud_id):
@@ -498,47 +498,122 @@ async def read(payload = None):
 @app.route('/write', methods=['POST'])
 async def write(payload = None):
     payload = await request.get_json()
-    shard = payload['shard']
     data = payload['data']
-    await before_critical_write(shard)
 
-    # critical section for write
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard))
-        temp = cursor.fetchall()
-        connection.commit()
-    
-    for row in temp:
-        server_name = row['Server_id']
-        url = f'http://{server_name}:5000/write'
-        payload = {}
-        payload['shard'] = shard
-        payload['data'] = data
-
-        try:
-            async with aiohttp.ClientSession() as client_session:
-                async with client_session.post(url, json = payload) as response:
-                    response_json = await response.json()
-                    print(response_json)
-
-                    if response.status != 200:
-                        response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
-                        response.status_code = 400
-                        after_critical_write(shard)
-                        return response
-
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
+    # group writes for each shard
+    shard_id_to_data = {}
+    for entry in data:
+        stud_id = entry['Stud_id']
+        shard_id = get_shard_id(stud_id)
+        if shard_id is None:
+            response = jsonify(message = '<Error> Student ID not found', status = 'failure')
             response.status_code = 400
-            after_critical_write(shard)
             return response
+        
+        if shard_id not in shard_id_to_data:
+            shard_id_to_data[shard_id] = []
+        shard_id_to_data[shard_id].append(entry)
 
-    after_critical_write(shard)
+    for shard_id, data in shard_id_to_data.items():
+        # acquire the lock
+        global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
+        await locks[shard_id].acquire()
+        writers_waiting[shard_id] += 1
+        while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
+            locks[shard_id].release()
+            await asyncio.sleep(0.1)
+            await locks[shard_id].acquire()
+        writers_waiting[shard_id] -= 1
+        write_in_progress[shard_id] = True
+
+        # critical section for write
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
+            temp = cursor.fetchall()
+            cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
+            valid_idx = cursor.fetchone()['valid_idx']
+            connection.commit()
+        
+        for row in temp:
+            server_name = row['Server_id']
+            url = f'http://{server_name}:5000/write'
+            payload = {}
+            payload['shard'] = shard_id
+            payload['curr_idx'] = valid_idx
+            payload['data'] = data
+
+            try:
+                async with aiohttp.ClientSession() as client_session:
+                    async with client_session.post(url, json = payload) as response:
+                        response_json = await response.json()
+                        print(response_json)
+
+                        if response.status != 200:
+                            response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
+                            response.status_code = 400
+                            write_in_progress[shard_id] = False
+                            locks[shard_id].release()
+                            return response
+
+            except Exception as e:
+                print(e)
+                response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
+                response.status_code = 400
+                write_in_progress[shard_id] = False
+                locks[shard_id].release()
+                return response
+
+        # update the valid_idx in ShardT
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
+            temp = cursor.fetchone()
+            valid_idx = temp['valid_idx']
+            cursor.execute("UPDATE ShardT SET valid_idx = %s WHERE Shard_id = %s", (valid_idx + len(data), shard_id))
+            connection.commit()
+
+        # release the lock
+        write_in_progress[shard_id] = False
+        locks[shard_id].release()
 
     response = jsonify(message = f'{len(data)} Data entries added', status = 'success')
     response.status_code = 200
     return response
+
+    # await before_critical_write(shard)
+
+    # # critical section for write
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard))
+    #     temp = cursor.fetchall()
+    #     connection.commit()
+    
+    # for row in temp:
+    #     server_name = row['Server_id']
+    #     url = f'http://{server_name}:5000/write'
+    #     payload = {}
+    #     payload['shard'] = shard
+    #     payload['data'] = data
+
+    #     try:
+    #         async with aiohttp.ClientSession() as client_session:
+    #             async with client_session.post(url, json = payload) as response:
+    #                 response_json = await response.json()
+    #                 print(response_json)
+
+    #                 if response.status != 200:
+    #                     response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
+    #                     response.status_code = 400
+    #                     after_critical_write(shard)
+    #                     return response
+
+    #     except Exception as e:
+    #         print(e)
+    #         response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
+    #         response.status_code = 400
+    #         after_critical_write(shard)
+    #         return response
+
+    # after_critical_write(shard)
 
 @app.route('/update', methods=['PUT'])
 async def update(payload = None):
@@ -552,14 +627,23 @@ async def update(payload = None):
         response.status_code = 400
         return response
     
-    await before_critical_write(shard_id)
-    
+    # acquire the lock
+    global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
+    await locks[shard_id].acquire()
+    writers_waiting[shard_id] += 1
+    while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
+        locks[shard_id].release()
+        await asyncio.sleep(0.1)
+        await locks[shard_id].acquire()
+    writers_waiting[shard_id] -= 1
+    write_in_progress[shard_id] = True
+
     # critical section for write
     with connection.cursor() as cursor:
         cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
         temp = cursor.fetchall()
         connection.commit()
-
+        
     for row in temp:
         server_name = row['Server_id']
         url = f'http://{server_name}:5000/update'
@@ -570,26 +654,79 @@ async def update(payload = None):
 
         try:
             async with aiohttp.ClientSession() as client_session:
-                async with client_session.put(url, json = payload) as response:
+                async with client_session.post(url, json = payload) as response:
                     response_json = await response.json()
                     print(response_json)
 
                     if response.status != 200:
-                        response = jsonify(message = f'<Error> Failed to update server {server_name}', status = 'failure')
+                        response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
                         response.status_code = 400
-                        after_critical_write(shard_id)
+                        write_in_progress[shard_id] = False
+                        locks[shard_id].release()
                         return response
 
         except Exception as e:
             print(e)
-            response = jsonify(message = '<Error> Failed to update server', status = 'failure')
+            response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
             response.status_code = 400
-            after_critical_write(shard_id)
+            write_in_progress[shard_id] = False
+            locks[shard_id].release()
             return response
 
-    after_critical_write(shard_id)
+    # # update the valid_idx in ShardT
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
+    #     temp = cursor.fetchone()
+    #     valid_idx = temp['valid_idx']
+    #     cursor.execute("UPDATE ShardT SET valid_idx = %s WHERE Shard_id = %s", (valid_idx + len(data), shard_id))
+    #     connection.commit()
 
-    response = jsonify(message = f'Data entry for Stud_id{stud_id} updated', status = 'success')
+    # release the lock
+    write_in_progress[shard_id] = False
+    locks[shard_id].release()
+
+    response = jsonify(message = f'Data entry for Stud_id: {stud_id} updated', status = 'success')
+    response.status_code = 200
+    return response
+    
+    # await before_critical_write(shard_id)
+    
+    # # critical section for write
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
+    #     temp = cursor.fetchall()
+    #     connection.commit()
+
+    # for row in temp:
+    #     server_name = row['Server_id']
+    #     url = f'http://{server_name}:5000/update'
+    #     payload = {}
+    #     payload['shard'] = shard_id
+    #     payload['Stud_id'] = stud_id
+    #     payload['data'] = data
+
+    #     try:
+    #         async with aiohttp.ClientSession() as client_session:
+    #             async with client_session.put(url, json = payload) as response:
+    #                 response_json = await response.json()
+    #                 print(response_json)
+
+    #                 if response.status != 200:
+    #                     response = jsonify(message = f'<Error> Failed to update server {server_name}', status = 'failure')
+    #                     response.status_code = 400
+    #                     after_critical_write(shard_id)
+    #                     return response
+
+    #     except Exception as e:
+    #         print(e)
+    #         response = jsonify(message = '<Error> Failed to update server', status = 'failure')
+    #         response.status_code = 400
+    #         after_critical_write(shard_id)
+    #         return response
+
+    # after_critical_write(shard_id)
+
+    # response = jsonify(message = f'Data entry for Stud_id{stud_id} updated', status = 'success')
     
 
 @app.route('/del', methods=['DELETE'])
@@ -602,15 +739,24 @@ async def delete(payload = None):
         response = jsonify(message = '<Error> Student ID not found', status = 'failure')
         response.status_code = 400
         return response
-    
-    await before_critical_write(shard_id)
+
+    # acquire the lock
+    global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
+    await locks[shard_id].acquire()
+    writers_waiting[shard_id] += 1
+    while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
+        locks[shard_id].release()
+        await asyncio.sleep(0.1)
+        await locks[shard_id].acquire()
+    writers_waiting[shard_id] -= 1
+    write_in_progress[shard_id] = True
 
     # critical section for write
     with connection.cursor() as cursor:
         cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
         temp = cursor.fetchall()
         connection.commit()
-    
+        
     for row in temp:
         server_name = row['Server_id']
         url = f'http://{server_name}:5000/del'
@@ -620,25 +766,77 @@ async def delete(payload = None):
 
         try:
             async with aiohttp.ClientSession() as client_session:
-                async with client_session.delete(url, json = payload) as response:
+                async with client_session.post(url, json = payload) as response:
                     response_json = await response.json()
                     print(response_json)
 
                     if response.status != 200:
-                        response = jsonify(message = f'<Error> Failed to delete server {server_name}', status = 'failure')
+                        response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
                         response.status_code = 400
-                        after_critical_write(shard_id)
+                        write_in_progress[shard_id] = False
+                        locks[shard_id].release()
                         return response
 
         except Exception as e:
             print(e)
-            response = jsonify(message = '<Error> Failed to delete server', status = 'failure')
+            response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
             response.status_code = 400
-            after_critical_write(shard_id)
+            write_in_progress[shard_id] = False
+            locks[shard_id].release()
             return response
-    after_critical_write(shard_id)
 
-    response = jsonify(message = f'Data entry with Stud_id{stud_id} removed', status = 'success')
+    # # update the valid_idx in ShardT
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
+    #     temp = cursor.fetchone()
+    #     valid_idx = temp['valid_idx']
+    #     cursor.execute("UPDATE ShardT SET valid_idx = %s WHERE Shard_id = %s", (valid_idx + len(data), shard_id))
+    #     connection.commit()
+
+    # release the lock
+    write_in_progress[shard_id] = False
+    locks[shard_id].release()
+
+    response = jsonify(message = f'Data entry with Stud_id:{stud_id} removed from all replicas', status = 'success')
+    response.status_code = 200
+    return response
+    
+    # await before_critical_write(shard_id)
+
+    # # critical section for write
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
+    #     temp = cursor.fetchall()
+    #     connection.commit()
+    
+    # for row in temp:
+    #     server_name = row['Server_id']
+    #     url = f'http://{server_name}:5000/del'
+    #     payload = {}
+    #     payload['shard'] = shard_id
+    #     payload['Stud_id'] = stud_id
+
+    #     try:
+    #         async with aiohttp.ClientSession() as client_session:
+    #             async with client_session.delete(url, json = payload) as response:
+    #                 response_json = await response.json()
+    #                 print(response_json)
+
+    #                 if response.status != 200:
+    #                     response = jsonify(message = f'<Error> Failed to delete server {server_name}', status = 'failure')
+    #                     response.status_code = 400
+    #                     after_critical_write(shard_id)
+    #                     return response
+
+    #     except Exception as e:
+    #         print(e)
+    #         response = jsonify(message = '<Error> Failed to delete server', status = 'failure')
+    #         response.status_code = 400
+    #         after_critical_write(shard_id)
+    #         return response
+    # after_critical_write(shard_id)
+
+    # response = jsonify(message = f'Data entry with Stud_id{stud_id} removed', status = 'success')
 
 if __name__ == '__main__':
     # initialise the tables MapT and ShardT
