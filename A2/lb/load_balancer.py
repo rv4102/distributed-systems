@@ -8,11 +8,11 @@ import pymysql
 
 app = Quart(__name__)
 client = docker.from_env()
-connection = pymysql.connect(host='localhost',
-                            user='root',
-                            password='root1234',
-                            database='db',
-                            cursorclass=pymysql.cursors.DictCursor)
+# connection = pymysql.connect(host='localhost',
+#                             user='root',
+#                             password='Aniket',
+#                             database='db',
+#                             cursorclass=pymysql.cursors.DictCursor)
 
 # locks and mutexes
 locks = {}
@@ -34,6 +34,30 @@ consistent_hash_maps = {}
 
 network = "n1"
 image = "serv"
+
+# creating tables
+
+ShardT = {
+    "Shard_id": [],
+    "Stud_id_low": [],
+    "Shard_size": [],
+    "valid_idx": []
+}
+
+MapT = {
+    "Shard_id": [],
+    "Server_id": []
+}
+
+def insertSharT(Shard_id, Stud_id_low, Shard_size, valid_idx):
+    ShardT["Shard_id"].append(Shard_id)
+    ShardT["Stud_id_low"].append(Stud_id_low)
+    ShardT["Shard_size"].append(Shard_size)
+    ShardT["valid_idx"].append(valid_idx)
+
+def insertMapT(Shard_id, Server_id):
+    MapT["Shard_id"].append(Shard_id)
+    MapT["Server_id"].append(Server_id)
 
 # def get_shard_id(stud_id):
 #     for shard_data in shard_to_data:
@@ -63,10 +87,18 @@ image = "serv"
 
 # logn wala implement kar dena uske liye dictionary ko array banana padega
 def get_shard_id(stud_id):
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT MAX(Stud_id_low) FROM ShardT WHERE Stud_id_low <= %s", (stud_id))
-        temp = cursor.fetchone()
-        connection.commit()
+    for i in range(len(ShardT["Shard_id"])):
+        Stud_id_low = ShardT["Stud_id_low"][i]
+        Stud_id_high = Stud_id_low + ShardT["Shard_size"][i]
+        shard_id = ShardT["Shard_id"][i]
+
+        if Stud_id_low <= stud_id and stud_id <= Stud_id_high:
+            return shard_id
+    return None
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT MAX(Stud_id_low) FROM ShardT WHERE Stud_id_low <= %s", (stud_id))
+    #     temp = cursor.fetchone()
+    #     connection.commit()
     
     # for shard_id, shard_info in shard_to_data.items():
     #     stud_id_low = shard_info["Stud_id_low"]
@@ -75,9 +107,9 @@ def get_shard_id(stud_id):
     #         return shard_id
     # return None  # If student ID doesn't belong to any shard
     
-    if temp is None:
-        return None
-    return temp['Shard_id']
+    # if temp is None:
+    #     return None
+    # return temp['Shard_id']
 
 # async def check_heartbeat(server_name = None):
 #     url = f'http://{server_name}:5000/heartbeat'
@@ -148,9 +180,11 @@ async def init(payload = None):
         shard_size = shard_data["Shard_size"]
 
         # insert into ShardT
-        with connection.cursor() as cursor:
-            cursor.execute("INSERT INTO ShardT (Shard_id, Stud_id_low, Shard_size, valid_idx) VALUES (%s, %s, %s, %s)", (shard_id, stud_id_low, shard_size, 0))
-            connection.commit()
+        insertSharT(shard_id, stud_id_low, shard_size, 0)
+
+        # with connection.cursor() as cursor:
+        #     cursor.execute("INSERT INTO ShardT (Shard_id, Stud_id_low, Shard_size, valid_idx) VALUES (%s, %s, %s, %s)", (shard_id, stud_id_low, shard_size, 0))
+        #     connection.commit()
     
     for server_name, shard_list in servers.items():
         # # not sure if needed ######################
@@ -167,9 +201,10 @@ async def init(payload = None):
                 server_id = consistent_hash_maps[shard_id].get_id_from_name(server_name)
 
             print(server_id)
-            with connection.cursor() as cursor:
-                cursor.execute("INSERT INTO MapT (Shard_id, Server_id) VALUES (%s, %s)", (shard_id, server_id))
-                connection.commit()
+            insertMapT(shard_id, server_id)
+            # with connection.cursor() as cursor:
+            #     cursor.execute("INSERT INTO MapT (Shard_id, Server_id) VALUES (%s, %s)", (shard_id, server_id))
+            #     connection.commit()
 
         try:
             res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
@@ -211,36 +246,53 @@ async def status(payload = None):
     # response_content = {}
 
     # get number of servers from MapT
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT DISTINCT Server_id FROM MapT")
-        temp = cursor.fetchall()
-        connection.commit()
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT DISTINCT Server_id FROM MapT")
+    #     temp = cursor.fetchall()
+    #     connection.commit()
     # response_content['N'] = len(temp)
 
     # retrieve shard data from ShardT
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT Shard_id, Stud_id_low, Shard_size FROM ShardT")
-        shard_data = cursor.fetchall()
-        connection.commit()
+    shard_data = []
+    for i in range(len(ShardT["Shard_id"])):
+        temp_data = {
+            "Stud_id_low": ShardT["Stud_id_low"][i],
+            "Shard_id": ShardT["Shard_id"][i],
+            "Shard_size": ShardT["Shard_size"][i],
+        }
+        shard_data.append(temp_data)
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT Shard_id, Stud_id_low, Shard_size FROM ShardT")
+    #     shard_data = cursor.fetchall()
+    #     connection.commit()
     # response_content['shards'] = shard_data
 
     # retrieve data from MapT
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT * FROM MapT")
-        temp = cursor.fetchall()
-        connection.commit()
+        
     server_map = {}
-    for row in temp:
-        shard_id = row['Shard_id']
-        server_id = row['Server_id']
+    for i in range(len(MapT["Shard_id"])):
+        shard_id = MapT["Shard_id"][i]
+        server_id = MapT["Server_id"][i]
         if server_id not in server_map:
             server_map[server_id] = []
         server_map[server_id].append(shard_id)
+
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT * FROM MapT")
+    #     temp = cursor.fetchall()
+    #     connection.commit()
+    # server_map = {}
+    # for row in temp:
+    #     shard_id = row['Shard_id']
+    #     server_id = row['Server_id']
+    #     if server_id not in server_map:
+    #         server_map[server_id] = []
+    #     server_map[server_id].append(shard_id)
     # response_content['servers'] = server_map
 
     # response_content['schema'] = schema
 
-    response = jsonify(N = len(temp), schema = schema, shards = shard_data, servers = server_map, status = 'success')
+    response = jsonify(N = num_servers, schema = schema, shards = shard_data, servers = server_map, status = 'success')
     response.status_code = 200
     return response
 
@@ -265,9 +317,10 @@ async def add(payload = None):
         shard_size = shard_data["Shard_size"]
 
         # insert into ShardT
-        with connection.cursor() as cursor:
-            cursor.execute("INSERT INTO ShardT (Shard_id, Stud_id_low, Shard_size, valid_idx) VALUES (%s, %s, %s, %s)", (shard_id, stud_id_low, shard_size, 0))
-            connection.commit()
+        insertSharT(shard_id, stud_id_low, shard_size, 0)
+        # with connection.cursor() as cursor:
+        #     cursor.execute("INSERT INTO ShardT (Shard_id, Stud_id_low, Shard_size, valid_idx) VALUES (%s, %s, %s, %s)", (shard_id, stud_id_low, shard_size, 0))
+        #     connection.commit()
 
     # if less than n toh randomly init serverid
     message = "Add "
@@ -281,9 +334,10 @@ async def add(payload = None):
         for shard_id in shard_list:
             if server_id is None:
                 server_id = consistent_hash_maps[shard_id].get_id_from_name(server_name)
-            with connection.cursor() as cursor:
-                cursor.execute("INSERT INTO MapT (Shard_id, Server_id) VALUES (%s, %s)", (shard_id, server_id))
-                connection.commit()
+            insertMapT(shard_id, server_id)
+            # with connection.cursor() as cursor:
+            #     cursor.execute("INSERT INTO MapT (Shard_id, Server_id) VALUES (%s, %s)", (shard_id, server_id))
+            #     connection.commit()
 
         try:
             res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
@@ -319,10 +373,16 @@ async def add(payload = None):
     
     response_json = {}
     # get number of servers from MapT
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT DISTINCT Server_id FROM MapT")
-        temp = cursor.fetchall()
-        connection.commit()
+    non_unique_temp = []
+    for i in range(len(MapT["Shard_id"])): 
+        shard_id = MapT["Shard_id"][i]
+        server_id = MapT["Server_id"][i]
+        non_unique_temp.append(server_id)
+    temp = list(set(non_unique_temp))
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT DISTINCT Server_id FROM MapT")
+    #     temp = cursor.fetchall()
+    #     connection.commit()
     response_json['N'] = len(temp)
     response_json['message'] = message
     response_json['status'] = 'successful'
@@ -350,14 +410,19 @@ async def rm(payload = None):
         return response
     
     # retrieve the servers from MapT
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT DISTINCT Server_id FROM MapT")
-        temp = cursor.fetchall()
-        connection.commit()
+    non_unique_temp = []
+    for i in range(len(MapT["Shard_id"])):
+        shard_id = MapT["Shard_id"][i]
+        server_id = MapT["Server_id"][i]
+        non_unique_temp.append(server_id)
+    temp = list(set(non_unique_temp))
     containers = {}
-    for row in temp:
-        server_id = row['Server_id']
+    for server_id in temp:
         containers[server_id] = server_id    
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT DISTINCT Server_id FROM MapT")
+    #     temp = cursor.fetchall()
+    #     connection.commit()
     
     # if there is a server in rm_servers that is not present in containers, then throw error
     for server in rm_servers:
@@ -374,25 +439,39 @@ async def rm(payload = None):
         # randomly select num_needed servers from other_servers
         rm_servers += random.sample(other_servers, num_needed)
 
+    indexes = []
     for server_name in rm_servers:
         # identify the shards present in the server from MapT
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT Shard_id FROM MapT WHERE Server_id = %s", (server_name))
-            shard_data = cursor.fetchall()
-            cursor.execute("DELETE FROM MapT WHERE Server_id = %s", (server_name))
-            connection.commit()
+        for i in range(len(MapT["Server_id"])): 
+            if MapT["Server_id"][i] == server_name:
+                shard_id = MapT["Shard_id"][i]
+                ch = consistent_hash_maps[shard_id]
+                ch.remove_server(server_name)
+                indexes.append(i)
+        
+        # remove the server from MapT
+        for index in sorted(indexes, reverse = True):
+            MapT["Shard_id"].pop(index)
+            MapT["Server_id"].pop(index)
+        
+        
+        # with connection.cursor() as cursor:
+        #     cursor.execute("SELECT Shard_id FROM MapT WHERE Server_id = %s", (server_name))
+        #     shard_data = cursor.fetchall()
+        #     cursor.execute("DELETE FROM MapT WHERE Server_id = %s", (server_name))
+        #     connection.commit()
         
         # remove the server from each shard's hash map
-        for row in shard_data:
-            shard_id = row['Shard_id']
-            ch = consistent_hash_maps[shard_id]
+        # for row in shard_data:
+        #     shard_id = row['Shard_id']
+        #     ch = consistent_hash_maps[shard_id]
 
-            # server_id = server_hostname_to_id[server_name]
-            ch.remove_server(server_name)
+        #     # server_id = server_hostname_to_id[server_name]
+        #     ch.remove_server(server_name)
 
         # # remove the server_name from the consistent hash map
         # server_id = server_hostname_to_id[server_name]
-        ch.remove_server(server_name)
+        # ch.remove_server(server_name)
         # server_id_to_hostname.pop(server_id)
         # server_hostname_to_id.pop(server_name)
 
@@ -409,18 +488,25 @@ async def rm(payload = None):
             return response
 
     # retrieve the servers from MapT
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT DISTINCT Server_id FROM MapT")
-        temp = cursor.fetchall()
-        connection.commit()
-    containers = []
-    for row in temp:
-        server_id = row['Server_id']
-        containers.append(server_id)
+    non_unique_temp = []
+    for i in range(len(MapT["Shard_id"])):
+        shard_id = MapT["Shard_id"][i]
+        server_id = MapT["Server_id"][i]
+        non_unique_temp.append(server_id)
+    containers = list(set(non_unique_temp))
+
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT DISTINCT Server_id FROM MapT")
+    #     temp = cursor.fetchall()
+    #     connection.commit()
+    # containers = []
+    # for row in temp:
+    #     server_id = row['Server_id']
+    #     containers.append(server_id)
 
     message = {
         'N': len(containers),
-        'servers': list(containers)
+        'servers': containers
     }
 
     response = jsonify(message = message, status = 'successful')
@@ -437,18 +523,27 @@ async def read(payload = None):
 
     # identify the shard_ids from the student_ids in the payload
     shard_ids = []
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT Shard_id, Stud_id_low, Shard_size FROM ShardT")
-        temp = cursor.fetchall()
-        connection.commit()
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT Shard_id, Stud_id_low, Shard_size FROM ShardT")
+    #     temp = cursor.fetchall()
+    #     connection.commit()
     
-    for row in temp:
-        Stud_id_low = row['Stud_id_low']
-        Stud_id_high = Stud_id_low + row['Shard_size']
-        shard_id = row['Shard_id']
 
-        if low_idx >= Stud_id_low and high_idx < Stud_id_high:
+    for i in range(len(ShardT["Shard_id"])):
+        Stud_id_low = ShardT["Stud_id_low"][i]
+        Stud_id_high = Stud_id_low + ShardT["Shard_size"][i]
+        shard_id = ShardT["Shard_id"][i]
+
+        if max(Stud_id_low, low_idx) <= min(Stud_id_high, high_idx):
             shard_ids.append(shard_id)
+
+    # for row in temp:
+    #     Stud_id_low = row['Stud_id_low']
+    #     Stud_id_high = Stud_id_low + row['Shard_size']
+    #     shard_id = row['Shard_id']
+
+    #     if low_idx >= Stud_id_low and high_idx < Stud_id_high:
+    #         shard_ids.append(shard_id)
     
     # retrieve data from the shards
     data = []
@@ -530,15 +625,22 @@ async def write(payload = None):
         write_in_progress[shard_id] = True
 
         # critical section for write
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
-            temp = cursor.fetchall()
-            cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
-            valid_idx = cursor.fetchone()['valid_idx']
-            connection.commit()
+        temp = []
+        for i in range (len(MapT["Shard_id"])):
+            if MapT["Shard_id"][i] == shard_id:
+                temp.append(MapT["Server_id"][i])
+        valid_idx = 0
+        for i in range (len(ShardT["Shard_id"])):
+            if ShardT["Shard_id"][i] == shard_id:
+                valid_idx = ShardT["valid_idx"][i]
+        # with connection.cursor() as cursor:
+        #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
+        #     temp = cursor.fetchall()
+        #     cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
+        #     valid_idx = cursor.fetchone()['valid_idx']
+        #     connection.commit()
         
-        for row in temp:
-            server_name = row['Server_id']
+        for server_name in temp:
             url = f'http://{server_name}:5000/write'
             payload = {}
             payload['shard'] = shard_id
@@ -567,12 +669,16 @@ async def write(payload = None):
                 return response
 
         # update the valid_idx in ShardT
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
-            temp = cursor.fetchone()
-            valid_idx = temp['valid_idx']
-            cursor.execute("UPDATE ShardT SET valid_idx = %s WHERE Shard_id = %s", (valid_idx + len(data), shard_id))
-            connection.commit()
+        for i in range(len(ShardT["Shard_id"])):
+            if ShardT["Shard_id"][i] == shard_id:
+                ShardT["valid_idx"][i] = valid_idx + len(data)
+
+        # with connection.cursor() as cursor:
+        #     cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
+        #     temp = cursor.fetchone()
+        #     valid_idx = temp['valid_idx']
+        #     cursor.execute("UPDATE ShardT SET valid_idx = %s WHERE Shard_id = %s", (valid_idx + len(data), shard_id))
+        #     connection.commit()
 
         # release the lock
         write_in_progress[shard_id] = False
@@ -642,13 +748,16 @@ async def update(payload = None):
     write_in_progress[shard_id] = True
 
     # critical section for write
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
-        temp = cursor.fetchall()
-        connection.commit()
+    temp = []
+    for i in range (len(MapT["Shard_id"])):
+        if MapT["Shard_id"][i] == shard_id:
+            temp.append(MapT["Server_id"][i])
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
+    #     temp = cursor.fetchall()
+    #     connection.commit()
         
-    for row in temp:
-        server_name = row['Server_id']
+    for server_name in temp:
         url = f'http://{server_name}:5000/update'
         payload = {}
         payload['shard'] = shard_id
@@ -755,13 +864,16 @@ async def delete(payload = None):
     write_in_progress[shard_id] = True
 
     # critical section for write
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
-        temp = cursor.fetchall()
-        connection.commit()
+    temp = []
+    for i in range (len(MapT["Shard_id"])):
+        if MapT["Shard_id"][i] == shard_id:
+            temp.append(MapT["Server_id"][i])
+    # with connection.cursor() as cursor:
+    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
+    #     temp = cursor.fetchall()
+    #     connection.commit()
         
-    for row in temp:
-        server_name = row['Server_id']
+    for server_name in temp:
         url = f'http://{server_name}:5000/del'
         payload = {}
         payload['shard'] = shard_id
@@ -843,9 +955,9 @@ async def delete(payload = None):
 
 if __name__ == '__main__':
     # initialise the tables MapT and ShardT
-    with connection.cursor() as cursor:
-        cursor.execute("CREATE TABLE IF NOT EXISTS MapT (Shard_id VARCHAR(255), Server_id VARCHAR(255))")
-        cursor.execute("CREATE TABLE IF NOT EXISTS ShardT (Shard_id VARCHAR(255), Stud_id_low INT, Shard_size INT, valid_idx INT)")
-        connection.commit()
+    # with connection.cursor() as cursor:
+    #     cursor.execute("CREATE TABLE IF NOT EXISTS MapT (Shard_id VARCHAR(255), Server_id VARCHAR(255))")
+    #     cursor.execute("CREATE TABLE IF NOT EXISTS ShardT (Shard_id VARCHAR(255), Stud_id_low INT, Shard_size INT, valid_idx INT)")
+    #     connection.commit()
 
     app.run(host='0.0.0.0', port=5000)

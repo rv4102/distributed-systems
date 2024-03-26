@@ -11,5 +11,5 @@
   "servers":{"Server0":["sh1","sh2"],
             "Server1":["sh2","sh3"],
             "Server2":["sh1","sh3"]}
-  },
+  }
   
