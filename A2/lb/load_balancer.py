@@ -10,7 +10,7 @@ app = Quart(__name__)
 client = docker.from_env()
 connection = pymysql.connect(host='localhost',
                             user='root',
-                            password='root',
+                            password='root1234',
                             database='db',
                             cursorclass=pymysql.cursors.DictCursor)
 
@@ -160,10 +160,13 @@ async def init(payload = None):
         #     server_hostname_to_id[server_name] = server_id
 
         # insert shard_id to server_id mapping into MapT
-        server_id = None
         for shard_id in shard_list:
+            server_id = consistent_hash_maps[shard_id].get_id_from_name(server_name)
             if server_id is None:
+                consistent_hash_maps[shard_id].add_server(server_name) # add to the hashmap
                 server_id = consistent_hash_maps[shard_id].get_id_from_name(server_name)
+
+            print(server_id)
             with connection.cursor() as cursor:
                 cursor.execute("INSERT INTO MapT (Shard_id, Server_id) VALUES (%s, %s)", (shard_id, server_id))
                 connection.commit()
@@ -841,8 +844,8 @@ async def delete(payload = None):
 if __name__ == '__main__':
     # initialise the tables MapT and ShardT
     with connection.cursor() as cursor:
-        cursor.execute("CREATE TABLE IF NOT EXISTS MapT (Shard_id INT, Server_id INT)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS ShardT (Shard_id INT PRIMARY KEY, Stud_id_low INT, Shard_size INT, valid_idx INT)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS MapT (Shard_id VARCHAR(255), Server_id VARCHAR(255))")
+        cursor.execute("CREATE TABLE IF NOT EXISTS ShardT (Shard_id VARCHAR(255), Stud_id_low INT, Shard_size INT, valid_idx INT)")
         connection.commit()
 
     app.run(host='0.0.0.0', port=5000)

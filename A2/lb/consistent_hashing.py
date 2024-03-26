@@ -88,6 +88,8 @@ class ConsistentHashMap:
         :param server_name: Name of the server instance
         :return: ID of the server instance
         """
+        if server_name not in self.name_to_id:
+            return None
         return self.name_to_id[server_name]
 
 
