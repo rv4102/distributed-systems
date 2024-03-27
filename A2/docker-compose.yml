@@ -1,0 +1,29 @@
+version: "3.9"
+networks:
+  net1:
+    name: net1
+    driver: bridge
+services:
+  lb:
+    build: ./lb/
+    image: lb
+    container_name: lb
+    ports:
+      - "5000:5000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    privileged: true
+    networks:
+      net1:
+        aliases:
+          - lb
+  server:
+    build: ./server/
+    image: server
+    ports:
+      - "5000:5000"
+    networks:
+      net1:
+        aliases:
+          - server
+    
