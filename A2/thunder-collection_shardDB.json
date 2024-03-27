@@ -1,0 +1,323 @@
+{
+    "client": "Thunder Client",
+    "collectionName": "shardDB",
+    "dateExported": "2024-03-27T06:23:54.339Z",
+    "version": "1.1",
+    "folders": [
+        {
+            "_id": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "name": "server",
+            "containerId": "",
+            "created": "2024-03-27T05:35:59.487Z",
+            "sortNum": 10000
+        },
+        {
+            "_id": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "lb",
+            "containerId": "",
+            "created": "2024-03-27T05:35:59.488Z",
+            "sortNum": 20000
+        }
+    ],
+    "requests": [
+        {
+            "_id": "2debf4db-b7a7-484c-9c44-c61b6479f4e7",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "init",
+            "url": "/init",
+            "method": "POST",
+            "sortNum": 10000,
+            "created": "2024-03-27T05:35:59.487Z",
+            "modified": "2024-03-27T05:35:59.487Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"N\": 3,\n  \"schema\": {\n    \"columns\": [\n      \"Stud_id\",\n      \"Stud_name\",\n      \"Stud_marks\"\n    ],\n    \"dtypes\": [\n      \"Number\",\n      \"String\",\n      \"Number\"\n    ]\n  },\n  \"shards\": [\n    {\n      \"Stud_id_low\": 0,\n      \"Shard_id\": \"sh1\",\n      \"Shard_size\": 4096\n    },\n    {\n      \"Stud_id_low\": 4096,\n      \"Shard_id\": \"sh2\",\n      \"Shard_size\": 4096\n    },\n    {\n      \"Stud_id_low\": 8192,\n      \"Shard_id\": \"sh3\",\n      \"Shard_size\": 4096\n    }\n  ],\n  \"servers\": {\n    \"Server0\": [\n      \"sh1\",\n      \"sh2\"\n    ],\n    \"Server1\": [\n      \"sh2\",\n      \"sh3\"\n    ],\n    \"Server2\": [\n      \"sh1\",\n      \"sh3\"\n    ]\n  }\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "7c39f02c-a458-42d3-a3a1-077724dc5634",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "name": "config",
+            "url": "/config",
+            "method": "POST",
+            "sortNum": 10000,
+            "created": "2024-03-27T05:35:59.495Z",
+            "modified": "2024-03-27T05:35:59.495Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"schema\": {\n    \"columns\": [\n      \"Stud_id\",\n      \"Stud_name\",\n      \"Stud_marks\"\n    ],\n    \"dtypes\": [\n      \"Number\",\n      \"String\",\n      \"String\"\n    ]\n  },\n  \"shards\": [\n    \"sh1\",\n    \"sh2\"\n  ]\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "4a85594e-9d7a-48a0-921a-5e74e9a6910e",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "init random placement",
+            "url": "/init",
+            "method": "POST",
+            "sortNum": 15000,
+            "created": "2024-03-27T05:35:59.503Z",
+            "modified": "2024-03-27T05:35:59.503Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"N\": 3,\n  \"schema\": {\n    \"columns\": [\n      \"Stud_id\",\n      \"Stud_name\",\n      \"Stud_marks\"\n    ],\n    \"dtypes\": [\n      \"Number\",\n      \"String\",\n      \"Number\"\n    ]\n  },\n  \"shards\": [\n    {\n      \"Stud_id_low\": 0,\n      \"Shard_id\": \"sh1\",\n      \"Shard_size\": 4096\n    },\n    {\n      \"Stud_id_low\": 4096,\n      \"Shard_id\": \"sh2\",\n      \"Shard_size\": 4096\n    },\n    {\n      \"Stud_id_low\": 8192,\n      \"Shard_id\": \"sh3\",\n      \"Shard_size\": 4096\n    }\n  ]\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "9141075d-7135-4f97-b1d8-b6bff5baa330",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "status",
+            "url": "/status",
+            "method": "GET",
+            "sortNum": 20000,
+            "created": "2024-03-27T05:35:59.488Z",
+            "modified": "2024-03-27T05:35:59.488Z",
+            "headers": [],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "6a5c41c7-9215-4e29-8069-684429b304be",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "name": "heartbeat",
+            "url": "/heartbeat",
+            "method": "GET",
+            "sortNum": 20000,
+            "created": "2024-03-27T05:35:59.497Z",
+            "modified": "2024-03-27T05:35:59.497Z",
+            "headers": [],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "482cdecb-a857-415e-9a23-297526db9457",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "add",
+            "url": "/add",
+            "method": "POST",
+            "sortNum": 30000,
+            "created": "2024-03-27T05:35:59.489Z",
+            "modified": "2024-03-27T05:35:59.489Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"n\": 2,\n  \"new_shards\": [\n    {\n      \"Stud_id_low\": 12288,\n      \"Shard_id\": \"sh5\",\n      \"Shard_size\": 4096\n    }\n  ],\n  \"servers\": {\n    \"Server4\": [\n      \"sh3\",\n      \"sh5\"\n    ],\n    \"Server[5]\": [\n      \"sh2\",\n      \"sh5\"\n    ]\n  }\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "b1ccfea3-63cd-4ee9-8f05-b2bbdc4b7d99",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "name": "copy",
+            "url": "/copy",
+            "method": "GET",
+            "sortNum": 30000,
+            "created": "2024-03-27T05:35:59.498Z",
+            "modified": "2024-03-27T05:35:59.498Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shards\": [\n    \"sh1\",\n    \"sh2\"\n  ]\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "3ce531d2-4f01-4a0b-9f60-96394ed5a5d5",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "rm",
+            "url": "/rm",
+            "method": "DELETE",
+            "sortNum": 40000,
+            "created": "2024-03-27T05:35:59.490Z",
+            "modified": "2024-03-27T05:35:59.490Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"n\": 1,\n  \"servers\": [\n    \"Server1\"\n  ]\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "9af6b429-526b-4ee0-af92-781913da4550",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "name": "read",
+            "url": "/read",
+            "method": "POST",
+            "sortNum": 40000,
+            "created": "2024-03-27T05:35:59.499Z",
+            "modified": "2024-03-27T05:35:59.499Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shard\": \"sh2\",\n  \"Stud_id\": {\n    \"low\": 2235,\n    \"high\": 2555\n  }\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "a0d7f7a1-7b1c-42c2-b44c-5b51f7ffa47d",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "read",
+            "url": "/read",
+            "method": "POST",
+            "sortNum": 50000,
+            "created": "2024-03-27T05:35:59.491Z",
+            "modified": "2024-03-27T05:38:52.951Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"Stud_id\": {\n    \"low\": 1000,\n    \"high\": 9000\n  }\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "d224ff89-2aa1-4228-b73c-2a35b410f139",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "name": "write",
+            "url": "/write",
+            "method": "POST",
+            "sortNum": 50000,
+            "created": "2024-03-27T05:35:59.500Z",
+            "modified": "2024-03-27T05:35:59.500Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shard\": \"sh2\",\n  \"curr_idx\": 507,\n  \"data\": [\n    {\n      \"Stud_id\": 2255,\n      \"Stud_name\": \"GHI\",\n      \"Stud_marks\": 27\n    }\n  ]\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "99a00ea3-c3af-4db6-8c53-5f5daf144817",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "write",
+            "url": "/write",
+            "method": "POST",
+            "sortNum": 60000,
+            "created": "2024-03-27T05:35:59.492Z",
+            "modified": "2024-03-27T05:35:59.492Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"data\": [\n    {\n      \"Stud_id\": 2255,\n      \"Stud_name\": \"GHI\",\n      \"Stud_marks\": 27\n    },\n    {\n      \"Stud_id\": 3524,\n      \"Stud_name\": \"JKBFSFS\",\n      \"Stud_marks\": 56\n    },\n    {\n      \"Stud_id\": 1005,\n      \"Stud_name\": \"YUBAAD\",\n      \"Stud_marks\": 100\n    }\n  ]\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "31695c55-39a8-4b9b-9bed-76dcd2c3bb18",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "name": "update",
+            "url": "/update",
+            "method": "PUT",
+            "sortNum": 60000,
+            "created": "2024-03-27T05:35:59.501Z",
+            "modified": "2024-03-27T05:35:59.501Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shard\": \"sh2\",\n  \"Stud_id\": 2255,\n  \"data\": {\n    \"Stud_id\": 2255,\n    \"Stud_name\": \"GHI\",\n    \"Stud_marks\": 28\n  }\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "12a18411-cc70-4530-81ab-bd74ee8ad878",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "update",
+            "url": "/update",
+            "method": "PUT",
+            "sortNum": 70000,
+            "created": "2024-03-27T05:35:59.493Z",
+            "modified": "2024-03-27T06:02:00.939Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"Stud_id\": 2255,\n  \"data\": {\n    \"Stud_id\": 2255,\n    \"Stud_name\": \"GHI\",\n    \"Stud_marks\": 50\n  }\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "86e0ffb4-5690-4a46-a59b-04c45ac7f784",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "name": "del",
+            "url": "/del",
+            "method": "DELETE",
+            "sortNum": 70000,
+            "created": "2024-03-27T05:35:59.502Z",
+            "modified": "2024-03-27T05:35:59.502Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shard\": \"sh1\",\n  \"Stud_id\": 2255\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "db797aae-d228-4065-8cfc-d67ca3b19039",
+            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
+            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "name": "del",
+            "url": "/del",
+            "method": "DELETE",
+            "sortNum": 80000,
+            "created": "2024-03-27T05:35:59.494Z",
+            "modified": "2024-03-27T05:35:59.494Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"Stud_id\": 2255\n}",
+                "form": []
+            },
+            "tests": []
+        }
+    ],
+    "settings": {
+        "options": {
+            "baseUrl": "http://localhost:5000"
+        }
+    }
+}

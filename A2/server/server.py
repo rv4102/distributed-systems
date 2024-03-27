@@ -1,173 +1,169 @@
+from flask import Flask, jsonify, request
+from mysql.connector.errors import Error
+from SQLHandler import SQLHandler
 import os
-from quart import Quart, jsonify, Response, request
-import pymysql
 
-app = Quart(__name__)
-connection = pymysql.connect(host='localhost',
-                            user='root',
-                            password='root',
-                            database='db',
-                            cursorclass=pymysql.cursors.DictCursor)
+app = Flask(__name__)
+sql = SQLHandler()
+server_name = os.environ['SERVER_NAME']
+
 
 @app.route('/config', methods=['POST'])
-async def config(payload = None):
-    payload = await request.get_json()
-    schema = payload['schema']
-    shards = payload['shards']
+def configure_server():
+    payload = request.get_json()
+    schema = payload.get('schema')
+    shards = payload.get('shards')
 
-    columns = schema['columns']
-    dtypes = schema['dtypes']
-    
-    for i in range(len(dtypes)):
-        if dtypes[i] == 'Number':
-            dtypes[i] = 'INT'
-        elif dtypes[i] == 'String':
-            dtypes[i] = 'VARCHAR(255)'
+    if not schema or not shards:
+        return jsonify({"message": "Invalid payload", "status": "error"}), 400
 
-    # error checking
+    if 'columns' not in schema or 'dtypes' not in schema or len(schema['columns']) != len(schema['dtypes']) or len(schema['columns']) == 0:
+        return jsonify({"message": "Invalid schema", "status": "error"}), 400
 
-    # setup shards
-    with connection.cursor() as cursor:
-        for shard in shards:
-            query = f"CREATE TABLE IF NOT EXISTS {shard} ("
-            for i in range(len(columns)):
-                if columns[i] == "Stud_id":
-                    query += f"{columns[i]} {dtypes[i]} PRIMARY KEY, "
-                else:
-                    query += f"{columns[i]} {dtypes[i]}, "
-            query = query[:-2] + ")"
-
-            cursor.execute(query)
-    connection.commit()
-
-    # response
-    serv_id = os.environ.get("SERV_ID")
-    # serv_id = "server1"
-    message = ""
     for shard in shards:
-        message += serv_id + f":{shard}, "
-    message = message[:-2] + " configured"
+        sql.UseDB(dbname=shard)
+        sql.CreateTable(
+            tabname='studT', columns=schema['columns'], dtypes=schema['dtypes'], prikeys=['Stud_id'])
 
-    response = jsonify(message = message, status = 'success')
-    response.status_code = 200
-    return response
+    response_message = f"{', '.join(f'{server_name}:{shard}' for shard in shards)} configured"
+    response_data = {"message": response_message, "status": "success"}
+
+    return jsonify(response_data), 200
+
 
 @app.route('/heartbeat', methods=['GET'])
-async def heartbeat():
-    return {}, 200
+def heartbeat():
+    return '', 200
+
 
 @app.route('/copy', methods=['GET'])
-async def copy(payload = None):
-    payload = await request.get_json()
-    shards = payload['shards']
+def copy_data():
 
-    # error checking
+    payload = request.get_json()
 
-    # copy shard data
-    message = {}
+    shards = payload.get('shards')
+
+    if not shards:
+        return jsonify({"message": "Invalid payload", "status": "error"}), 400
+
+    response_data = {}
     for shard in shards:
-        with connection.cursor() as cursor:
-            query = f"SELECT * FROM {shard}"
-            cursor.execute(query)
-            result = cursor.fetchall()
-        connection.commit()
+        if not sql.hasDB(dbname=shard):
+            return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
+        sql.UseDB(dbname=shard)
+        response_data[shard] = sql.Select(table_name='studT')
+    response_data["status"] = "success"
 
-        message[shard] = result
-    message['status'] = "success"
-    
-    # response
-    response = jsonify(message)
-    response.status_code = 200
-    return response
+    return jsonify(response_data), 200
+
 
 @app.route('/read', methods=['POST'])
-async def read(payload = None):
-    payload = await request.get_json()
-    shard = payload['shard']
-    Stud_id = payload['Stud_id']
+def read_data():
 
-    # error checking
+    payload = request.get_json()
 
-    # read data
-    low_idx = Stud_id['low']
-    high_idx = Stud_id['high']
+    shard = payload.get('shard')
+    Stud_id = payload.get('Stud_id')
 
-    with connection.cursor() as cursor:
-        query = f"SELECT * FROM {shard} WHERE Stud_id BETWEEN {low_idx} AND {high_idx}"
-        cursor.execute(query)
-        result = cursor.fetchall()
-    connection.commit()
-    
-    # response
-    message = result
-    response = jsonify(data = message, status = 'success')
-    response.status_code = 200
-    return response
+    if not shard or not Stud_id or 'low' not in Stud_id or 'high' not in Stud_id:
+        return jsonify({"message": "Invalid payload", "status": "error"}), 400
+
+    if not sql.hasDB(dbname=shard):
+        return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
+
+    sql.UseDB(dbname=shard)
+    data = sql.Select(table_name="studT", col="Stud_id",
+                      low=Stud_id['low'], high=Stud_id['high'])
+
+    response_data = {"data": data, "status": "success"}
+
+    return jsonify(response_data), 200
+
 
 @app.route('/write', methods=['POST'])
-async def write(payload = None):
-    payload = await request.get_json()
-    shard = payload['shard']
-    curr_idx = payload['curr_idx']
-    data = payload['data']
+def write_data():
 
-    # error checking
+    payload = request.get_json()
 
-    # write data
-    with connection.cursor() as cursor:
-        for row in data:
-            query = f"INSERT INTO {shard} (Stud_id, Stud_name, Stud_marks) VALUES ('{row['Stud_id']}', '{row['Stud_name']}', '{row['Stud_marks']}')"
-            cursor.execute(query)
-    connection.commit()
-    
-    # response
-    message = "Data entries added"
-    curr_idx = curr_idx + len(data)
-    response = jsonify(message = message, current_idx = curr_idx, status = 'success')
-    response.status_code = 200
-    return response
+    shard = payload.get('shard')
+    curr_idx = payload.get('curr_idx')
+    data = payload.get('data')
+
+    if not shard or curr_idx is None or not data:
+        return jsonify({"message": "Invalid payload", "status": "error"}), 400
+
+    if not sql.hasDB(dbname=shard):
+        return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
+
+    sql.UseDB(dbname=shard)
+    sql.Insert(table_name='studT', rows=data)
+
+    curr_idx += len(data)
+
+    response_data = {"message": "Data entries added",
+                     "curr_idx": curr_idx, "status": "success"}
+
+    return jsonify(response_data), 200
+
 
 @app.route('/update', methods=['PUT'])
-async def update(payload = None):
-    payload = await request.get_json()
-    shard = payload['shard']
-    Stud_id = payload['Stud_id']
-    data = payload['data']
+def update_data():
 
-    # error checking
+    payload = request.get_json()
 
-    # update data
-    with connection.cursor() as cursor:
-        query = f"UPDATE {shard} SET Stud_name = '{data['Stud_name']}', Stud_marks = '{data['Stud_marks']}' WHERE Stud_id = '{Stud_id}'"
-        cursor.execute(query)
-    connection.commit()
-    
-    # response
-    message = f"Data entry for Stud_id:{Stud_id} updated"
-    response = jsonify(message = message, status = 'success')
-    response.status_code = 200
-    return response
+    shard = payload.get('shard')
+    Stud_id = payload.get('Stud_id')
+    data = payload.get('data')
+
+    if not shard or Stud_id is None or not data:
+        return jsonify({"message": "Invalid payload", "status": "error"}), 400
+
+    if not sql.hasDB(dbname=shard):
+        return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
+
+    sql.UseDB(dbname=shard)
+    if not sql.Exists(table_name='studT', col="Stud_id", val=Stud_id):
+        return jsonify({"message": f"Data entry for Stud_id:{Stud_id} not found", "status": "error"}), 404
+    sql.Update(table_name='studT', col="Stud_id", val=Stud_id, data=data)
+
+    response_data = {
+        "message": f"Data entry for Stud_id:{Stud_id} updated", "status": "success"}
+
+    return jsonify(response_data), 200
+
 
 @app.route('/del', methods=['DELETE'])
-async def delete(payload = None):
-    payload = await request.get_json()
-    shard = payload['shard']
-    Stud_id = payload['Stud_id']
+def delete_data():
+    payload = request.get_json()
 
-    # error checking
+    shard = payload.get('shard')
+    Stud_id = payload.get('Stud_id')
 
-    # delete data
-    with connection.cursor() as cursor:
-        query = f"DELETE FROM {shard} WHERE Stud_id = {Stud_id}"
-        cursor.execute(query)
-    connection.commit()
-    
-    # response
-    message = f"Data entry for Stud_id: {Stud_id} removed"
-    response = jsonify(message = message, status = 'success')
-    response.status_code = 200
-    return response
+    if not shard or Stud_id is None:
+        return jsonify({"message": "Invalid payload", "status": "error"}), 400
+
+    if not sql.hasDB(dbname=shard):
+        return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
+
+    sql.UseDB(dbname=shard)
+    if not sql.Exists(table_name='studT', col="Stud_id", val=Stud_id):
+        return jsonify({"message": f"Data entry for Stud_id:{Stud_id} not found", "status": "error"}), 404
+    sql.Delete(table_name='studT', col="Stud_id", val=Stud_id)
+
+    response_data = {
+        "message": f"Data entry with Stud_id:{Stud_id} removed", "status": "success"}
+
+    return jsonify(response_data), 200
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    app.logger.error(f"Exception: {e}")
+    if isinstance(e, Error):
+        return jsonify({"message": e.msg, "status": "error"}), 400
+    else:
+        return jsonify({"message": "Internal server Error: check params", "status": "error"}), 500
 
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=False)

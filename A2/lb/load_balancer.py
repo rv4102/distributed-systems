@@ -1,963 +1,469 @@
-from consistent_hashing import ConsistentHashMap
+from bisect import bisect_left, bisect_right
+from collections import defaultdict
+import random
+import re
+from typing import Dict
 from quart import Quart, jsonify, Response, request
 import asyncio
 import aiohttp
-import docker
-import random
-import pymysql
+import os
+import logging
+import copy
+from consistent_hashing import ConsistentHashMap
 
 app = Quart(__name__)
-client = docker.from_env()
-# connection = pymysql.connect(host='localhost',
-#                             user='root',
-#                             password='Aniket',
-#                             database='db',
-#                             cursorclass=pymysql.cursors.DictCursor)
+logging.basicConfig(level=logging.DEBUG)
+PORT = 5000
 
-# locks and mutexes
-locks = {}
-resource = {}
-readers_waiting = {}
-writers_waiting = {}
-write_in_progress = {}
-writer_priority = {}
+available_servers = []
+server_to_id = {}
+id_to_server = {}
+shard_to_servers = {}
+servers_to_shard = {}
+prefix_shard_sizes = []
+shardT = []
+# clientSession = aiohttp.ClientSession() # will optimise this after every other thing works fine
 
-# other globals
-num_servers = 0
-num_shards = 0
-schema = {}
-consistent_hash_maps = {}
+shard_hash_map:Dict[str, ConsistentHashMap] = defaultdict(ConsistentHashMap)
+shard_write_lock = defaultdict(lambda: asyncio.Lock())
+metadata_lock = asyncio.Lock()
 
-# server_to_shards = {}
-# shards_to_server = {}
-# shard_to_data = {}
+# configs server for particular schema and shards
+async def config_server(serverName, schema, shards):
+    app.logger.info(f"Configuring {serverName}")
+    await asyncio.sleep(90)
+    async with aiohttp.ClientSession() as session:
+        payload = {"schema": schema, "shards": shards}
+        async with session.post(f'http://{serverName}:5000/config', json=payload) as resp:
+            if resp.status == 200:
+                return True
+            else:
+                return False
 
-network = "n1"
-image = "serv"
+# gets the shard data from available server       
+async def get_shard_data(shard):
+    print(f"Getting shard data for {shard} from available servers")
+    serverName = None
+    async with metadata_lock:
+        serverId = shard_hash_map[shard].getServer(random.randint(1000000, 1000000))
+        print(f"ServerId for shard {shard} is {serverId}")
+        serverName = id_to_server[serverId]
+    async with aiohttp.ClientSession() as session:
+        payload = {"shards": [shard]}
+        async with session.get(f'http://{serverName}:5000/copy', json=payload) as resp:
+            result = await resp.json()
+            data = result.get(shard, None)
+            if resp.status == 200:
+                return data
+            else:
+                return None
 
-# creating tables
+# writes the shard data into server
+async def write_shard_data(serverName, shard, data):
+    async with aiohttp.ClientSession() as session:
+        payload = {"shard": shard, "curr_idx": 1, "data": data}
+        async with session.post(f'http://{serverName}:5000/write', json=payload) as resp:
+            if resp.status == 200:
+                return True
+            else:
+                return False
 
-ShardT = {
-    "Shard_id": [],
-    "Stud_id_low": [],
-    "Shard_size": [],
-    "valid_idx": []
-}
+# dead server restores shards from other servers
+async def restore_shards(serverName, shards):
+    for shard in shards:
+        shard_data = await get_shard_data(shard)
+        await write_shard_data(serverName, shard, shard_data)
 
-MapT = {
-    "Shard_id": [],
-    "Server_id": []
-}
+# spawns new server if serverName is None, else spawns server with serverName
+# if old server is respawned then it restores shards from other servers
+# first spawns server, configures it, restores shards, then updates the required maps
+async def spawn_server(serverName=None, shardList=[], schema={"columns":["Stud_id","Stud_name","Stud_marks"], "dtypes":["Number","String","Number"]}):
+    global available_servers
 
-def insertSharT(Shard_id, Stud_id_low, Shard_size, valid_idx):
-    ShardT["Shard_id"].append(Shard_id)
-    ShardT["Stud_id_low"].append(Stud_id_low)
-    ShardT["Shard_size"].append(Shard_size)
-    ShardT["valid_idx"].append(valid_idx)
+    newserver = False
+    serverId = server_to_id.get(serverName)
+    if serverId == None:
+        newserver = True
+        async with metadata_lock:
+            serverId = available_servers.pop(0)
+    if serverName == None:
+        serverName = f'server{serverId}'
 
-def insertMapT(Shard_id, Server_id):
-    MapT["Shard_id"].append(Shard_id)
-    MapT["Server_id"].append(Server_id)
+    containerName = serverName
+    res = os.popen(f"docker run --name {containerName} --network net1 --network-alias {containerName} -e SERVER_NAME={containerName} -d server").read()
+    if res == "":
+        app.logger.error(f"Error while spawning {containerName}")
+        return False, ""
+    else:
+        app.logger.info(f"Spawned {containerName}")
+        try:
+            await config_server(serverName, schema, shardList)
+            app.logger.info(f"Configured {containerName}")
 
-# def get_shard_id(stud_id):
-#     for shard_data in shard_to_data:
-#         stud_id_low = shard_data["Stud_id_low"]
-#         shard_size = shard_data["Shard_size"]
-#         if stud_id >= stud_id_low and stud_id < stud_id_low + shard_size:
-#             return shard_data["Shard_id"]
-#     return None  # If no shard matches
+            if not newserver:
+                await restore_shards(serverName, shardList)
+                app.logger.info(f"Restored shards for {containerName}")
 
-# async def before_critical_write(shard_id):
-#     global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
-#     await locks[shard_id].acquire()
-#     writers_waiting[shard_id] += 1
-#     while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
-#         locks[shard_id].release()
-#         await asyncio.sleep(0.1)
-#         await locks[shard_id].acquire()
-#     writers_waiting[shard_id] -= 1
-#     write_in_progress[shard_id] = True
-#     locks[shard_id].release()
-#     return
+            async with metadata_lock:
+                for shard in shardList:
+                    shard_hash_map[shard].addServer(serverId)
+                    shard_to_servers.setdefault(shard, []).append(serverName)
+                
+                id_to_server[serverId] = serverName
+                server_to_id[serverName] = serverId
+                servers_to_shard[serverName] = shardList
 
-# async def after_critical_write(shard_id):
-#     async with locks[shard_id]:
-#         write_in_progress[shard_id] = False
-#     return
-
-# logn wala implement kar dena uske liye dictionary ko array banana padega
-def get_shard_id(stud_id):
-    for i in range(len(ShardT["Shard_id"])):
-        Stud_id_low = ShardT["Stud_id_low"][i]
-        Stud_id_high = Stud_id_low + ShardT["Shard_size"][i]
-        shard_id = ShardT["Shard_id"][i]
-
-        if Stud_id_low <= stud_id and stud_id <= Stud_id_high:
-            return shard_id
-    return None
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT MAX(Stud_id_low) FROM ShardT WHERE Stud_id_low <= %s", (stud_id))
-    #     temp = cursor.fetchone()
-    #     connection.commit()
-    
-    # for shard_id, shard_info in shard_to_data.items():
-    #     stud_id_low = shard_info["Stud_id_low"]
-    #     shard_size = shard_info["Shard_size"]
-    #     if stud_id_low <= stud_id < stud_id_low + shard_size:
-    #         return shard_id
-    # return None  # If student ID doesn't belong to any shard
-    
-    # if temp is None:
-    #     return None
-    # return temp['Shard_id']
-
-# async def check_heartbeat(server_name = None):
-#     url = f'http://{server_name}:5000/heartbeat'
-#     try:
-#         async with aiohttp.ClientSession() as client_session:
-#             async with client_session.get(url) as response:
-#                 if response.status == 200:
-#                     return True
-#                 else:
-#                     return False
-#     except Exception as e:
-#         return False
-
-# ## Abhi bas copy pasted hai isko theek karna hoga
-# async def periodic_server_monitor(interval = 1):
-#     while True:
-#         dead_servers = []
-#         tasks = [check_heartbeat(server_name) for server_name in server_hostname_to_id.keys()]
-#         results = await asyncio.gather(*tasks)
-#         results = zip(server_hostname_to_id.keys(), results)
-#         for server_name, result in results:
-#             if result == False:
-#                 server_id = server_hostname_to_id[server_name]
-#                 ch.remove_server(server_id)
-#                 dead_servers.append(server_name)
+            app.logger.info(f"Updated metadata for {containerName}")
+        except Exception as e:
+            app.logger.error(f"Error while spawning {containerName}, got exception {e}")
+            return False, ""
         
-#         for server_name in dead_servers:
-#             server_id = server_hostname_to_id[server_name]
+        return True, serverName
+    
+# checks periodic heartbeat of server
+async def check_heartbeat(serverName):
+    try:
+        app.logger.info(f"Checking heartbeat of {serverName}")
+        async with aiohttp.ClientSession(trust_env=True) as client_session:
+            async with client_session.get(f'http://{serverName}:5000/heartbeat') as resp:
+                if resp.status == 200:
+                    return True
+                else:
+                    return False
+    except Exception as e:
+        app.logger.error(f"Error while checking heartbeat of {serverName}: {e}")
+        return False
 
-#             try:
-#                 res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
-#             except Exception as e:
-#                 print(e)
+async def periodic_heatbeat_check(interval=2):
+    app.logger.info("Starting periodic heartbeat check")
+    while True:
+        server_to_id_temp=copy.deepcopy(server_to_id)
+        deadServerList=[]
+        tasks = [check_heartbeat(serverName) for serverName in server_to_id_temp.keys()]
+        results = await asyncio.gather(*tasks)
+        results = zip(server_to_id_temp.keys(),results)
+        for serverName,isDown in results:
+            if isDown == False:
+                app.logger.error(f"Server {serverName} is down")
+                shardList = []  
+                for shard in servers_to_shard[serverName]:
+                    shardList.append(shard)
+                    shard_hash_map[shard].removeServer(server_to_id[serverName])
+                deadServerList.append(serverName)
+                del servers_to_shard[serverName]
+        for serverName in deadServerList:
+            await spawn_server(serverName, shardList)
+        await asyncio.sleep(interval)
 
-#             ch.add_server(server_id)
-        
-#         await asyncio.sleep(interval)
-
+# assuming 3 replicas when shard placement is not mentioned
 @app.route('/init', methods=['POST'])
-async def init(payload = None):
+async def init():
     payload = await request.get_json()
-    global num_servers
-    num_servers = payload['N']
-    servers = payload['servers']
-    shards = payload['shards']
-    global num_shards
-    num_shards = len(shards)
-    global schema
-    schema = payload['schema']
+    n = payload.get("N")
+    schema = payload.get("schema")
+    shards = payload.get("shards")
+    servers = payload.get("servers")
 
-    # error checking
-    if num_servers is None or servers is None or shards is None or schema is None:
-        response = jsonify(message = "Invalid Payload, something is missing", status = 'failure')
-        response.status_code = 400
-        return response
+    if not n or not schema or not shards:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
-    if num_servers != len(servers):
-        response = jsonify(message = "Number of servers does not match N", status = 'failure')
-        response.status_code = 400
-        return response
+    if 'columns' not in schema or 'dtypes' not in schema or len(schema['columns']) != len(schema['dtypes']) or len(schema['columns']) == 0:
+        return jsonify({"message": "Invalid schema", "status": "failure"}), 400
     
-    # update global data structures
-    for shard_data in shards:
-        shard_id = shard_data['Shard_id']
-        consistent_hash_maps[shard_id] = ConsistentHashMap()
-
-        stud_id_low = shard_data["Stud_id_low"]
-        shard_size = shard_data["Shard_size"]
-
-        # insert into ShardT
-        insertSharT(shard_id, stud_id_low, shard_size, 0)
-
-        # with connection.cursor() as cursor:
-        #     cursor.execute("INSERT INTO ShardT (Shard_id, Stud_id_low, Shard_size, valid_idx) VALUES (%s, %s, %s, %s)", (shard_id, stud_id_low, shard_size, 0))
-        #     connection.commit()
+    if len(shards) == 0:
+        return jsonify({"message": "Invalid shards or servers", "status": "failure"}), 400
     
-    for server_name, shard_list in servers.items():
-        # # not sure if needed ######################
-        # if server_name not in server_hostname_to_id:
-        #     server_id = random.randint(100000, 999999)
-        #     server_id_to_hostname[server_id] = server_name
-        #     server_hostname_to_id[server_name] = server_id
+    global shardT
+    global prefix_shard_sizes
 
-        # insert shard_id to server_id mapping into MapT
-        for shard_id in shard_list:
-            server_id = consistent_hash_maps[shard_id].get_id_from_name(server_name)
-            if server_id is None:
-                consistent_hash_maps[shard_id].add_server(server_name) # add to the hashmap
-                server_id = consistent_hash_maps[shard_id].get_id_from_name(server_name)
+    shardT = shards
+    prefix_shard_sizes = [0]
+    for shard in shards:
+        prefix_shard_sizes.append(prefix_shard_sizes[-1] + shard["Shard_size"])
 
-            print(server_id)
-            insertMapT(shard_id, server_id)
-            # with connection.cursor() as cursor:
-            #     cursor.execute("INSERT INTO MapT (Shard_id, Server_id) VALUES (%s, %s)", (shard_id, server_id))
-            #     connection.commit()
+    spawned_servers = []
 
-        try:
-            res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to spawn new docker container', status = 'failure')
-            response.status_code = 400
-            return response
-            
-        url = f'http://{server_name}:5000/config'
-        payload = {}
-        payload['schema'] = schema
-        payload['shards'] = shard_list
+    # *2 would also work fine
+    tasks = []
+    shards = shards*3
+    if not servers:
+        for i in range(n):
+            nshards = len(shards)//n
+            tasks.append(spawn_server(None, shards[i:i+nshards], schema))
+        servers = {}
 
-        try:
-            async with aiohttp.ClientSession() as client_session:
-                async with client_session.post(url, json = payload) as response:
-                    response_json = await response.json()
-                    print(response_json)
+    for server, shardList in servers.items():
+        tasks.append(spawn_server(server, shardList, schema))
 
-                    if response.status != 200:
-                        response = jsonify(message = f'<Error> Failed to configure server {server_name}', status = 'failure')
-                        response.status_code = 400
-                        return response
+    results = await asyncio.gather(*tasks)
+    for result in results:
+        if result[0]:
+            spawned_servers.append(result[1])
 
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to configure server', status = 'failure')
-            response.status_code = 400
-            return response
-
-    response = jsonify(message = "Configured Database", status = 'success')
-    response.status_code = 200
-    return response
-
+    if len(spawned_servers) == 0:
+        return jsonify({"message": "No servers spawned", "status": "failure"}), 500
+    
+    if len(spawned_servers) != n:
+        return jsonify({"message": f"Spawned only {spawned_servers} servers", "status": "success"}), 200
+    
+    return jsonify({"message": "Configured Database", "status": "success"}), 200
 
 @app.route('/status', methods=['GET'])
-async def status(payload = None):
-    # response_content = {}
+def status():
+    servers = servers_to_shard
+    shards = shardT
+    N = len(servers)
+    return jsonify({"N": N, "shards": shards, "servers": servers, "status": "success"}), 200
 
-    # get number of servers from MapT
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT DISTINCT Server_id FROM MapT")
-    #     temp = cursor.fetchall()
-    #     connection.commit()
-    # response_content['N'] = len(temp)
-
-    # retrieve shard data from ShardT
-    shard_data = []
-    for i in range(len(ShardT["Shard_id"])):
-        temp_data = {
-            "Stud_id_low": ShardT["Stud_id_low"][i],
-            "Shard_id": ShardT["Shard_id"][i],
-            "Shard_size": ShardT["Shard_size"][i],
-        }
-        shard_data.append(temp_data)
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT Shard_id, Stud_id_low, Shard_size FROM ShardT")
-    #     shard_data = cursor.fetchall()
-    #     connection.commit()
-    # response_content['shards'] = shard_data
-
-    # retrieve data from MapT
-        
-    server_map = {}
-    for i in range(len(MapT["Shard_id"])):
-        shard_id = MapT["Shard_id"][i]
-        server_id = MapT["Server_id"][i]
-        if server_id not in server_map:
-            server_map[server_id] = []
-        server_map[server_id].append(shard_id)
-
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT * FROM MapT")
-    #     temp = cursor.fetchall()
-    #     connection.commit()
-    # server_map = {}
-    # for row in temp:
-    #     shard_id = row['Shard_id']
-    #     server_id = row['Server_id']
-    #     if server_id not in server_map:
-    #         server_map[server_id] = []
-    #     server_map[server_id].append(shard_id)
-    # response_content['servers'] = server_map
-
-    # response_content['schema'] = schema
-
-    response = jsonify(N = num_servers, schema = schema, shards = shard_data, servers = server_map, status = 'success')
-    response.status_code = 200
-    return response
-
-
+# if new_shards are empty, then we are just increasing replication factor
 @app.route('/add', methods=['POST'])
-async def add(payload = None):
-    #checks lagana hai
+async def add_servers():
     payload = await request.get_json()
-    num_new_servers = payload['n']
-    num_servers += num_new_servers
-
-    new_shards = payload['new_shards']
-    num_shards += len(new_shards)
-
-    servers = payload['servers']
-
-    for shard_data in new_shards:
-        shard_id = shard_data['Shard_id']
-        consistent_hash_maps[shard_id] = ConsistentHashMap()
-
-        stud_id_low = shard_data["Stud_id_low"]
-        shard_size = shard_data["Shard_size"]
-
-        # insert into ShardT
-        insertSharT(shard_id, stud_id_low, shard_size, 0)
-        # with connection.cursor() as cursor:
-        #     cursor.execute("INSERT INTO ShardT (Shard_id, Stud_id_low, Shard_size, valid_idx) VALUES (%s, %s, %s, %s)", (shard_id, stud_id_low, shard_size, 0))
-        #     connection.commit()
-
-    # if less than n toh randomly init serverid
-    message = "Add "
-    for server_name, shard_list in servers:
-        # # if already exists
-        # if server_name not in server_hostname_to_id:
-        #     server_id = random.randint(100000, 999999)
-        #     server_id_to_hostname[server_id] = server_name
-        #     server_hostname_to_id[server_name] = server_id
-        server_id = None
-        for shard_id in shard_list:
-            if server_id is None:
-                server_id = consistent_hash_maps[shard_id].get_id_from_name(server_name)
-            insertMapT(shard_id, server_id)
-            # with connection.cursor() as cursor:
-            #     cursor.execute("INSERT INTO MapT (Shard_id, Server_id) VALUES (%s, %s)", (shard_id, server_id))
-            #     connection.commit()
-
-        try:
-            res = client.containers.run(image=image, name=server_name, network=network, detach=True, environment={'SERV_ID': server_id})
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to spawn new docker container', status = 'failure')
-            response.status_code = 400
-            return response
-
-        url = f'http://{server_name}:5000/config'
-        payload = {}
-        payload['schema'] = schema
-        payload['shards'] = shard_list
-        try:
-            async with aiohttp.ClientSession() as client_session:
-                async with client_session.post(url,json = payload) as response:
-                    response_json = await response.json()
-                    print(response_json)
-
-                    if response.status != 200:
-                        response = jsonify(message = f'<Error> Failed to configure server {server_name}', status = 'failure')
-                        response.status_code = 400
-                        return response
-
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to configure server', status = 'failure')
-            response.status_code = 400
-            return response
-        
-        message += server_name + ", "
-    message = message[:-2]
+    n = payload.get("n")
+    new_shards = payload.get("new_shards")
+    servers = payload.get("servers")
     
-    response_json = {}
-    # get number of servers from MapT
-    non_unique_temp = []
-    for i in range(len(MapT["Shard_id"])): 
-        shard_id = MapT["Shard_id"][i]
-        server_id = MapT["Server_id"][i]
-        non_unique_temp.append(server_id)
-    temp = list(set(non_unique_temp))
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT DISTINCT Server_id FROM MapT")
-    #     temp = cursor.fetchall()
-    #     connection.commit()
-    response_json['N'] = len(temp)
-    response_json['message'] = message
-    response_json['status'] = 'successful'
+    if not n or not servers:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
+    
+    if n!=len(servers):
+        return jsonify*{"message": f"<Error> Number of new servers {n} is not equal to newly added instances {len(new_shards)}", "status": "failure"}, 400
+    
+    for server in servers:
+        if server in server_to_id:
+            return jsonify(message=f"<ERROR> {server} already exists", status="failure"), 400
+        
+    if not new_shards:
+        new_shards = []
 
-    response = jsonify(message = response_json, status = 'success')
-    response.status_code = 200
-    return response
+    for shardData in new_shards:
+        shard_size = shardData["Shard_size"]
+        shardT.append(shardData)
+        prefix_shard_sizes.append(prefix_shard_sizes[-1] + shard_size)
+
+    spawned_servers = []
+    tasks = []
+    for server, shardList in servers.items():
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]*$', server):
+            tasks.append(spawn_server(None, shardList))
+        else:
+            tasks.append(spawn_server(server, shardList))
+
+    results = await asyncio.gather(*tasks)
+    for result in results:
+        if result[0]:
+            spawned_servers.append(result[1])
+
+    if len(spawned_servers) == 0:
+        return jsonify({"message": "No servers spawned", "status": "failure"}), 500
+    
+    return jsonify({"message": f"Add {', '.join(spawned_servers)} servers", "status": "success"}), 200
+
+
+def remove_container(hostname):
+    try:
+        serverId = server_to_id[hostname]
+        shardList = servers_to_shard[hostname]
+        for shard in shardList:
+            shard_hash_map[shard].removeServer(serverId)
+        del servers_to_shard[hostname]
+        available_servers.append(serverId)
+        server_to_id.pop(hostname)
+        id_to_server.pop(serverId)
+        os.system(f"docker stop {hostname} && docker rm {hostname}")
+    except Exception as e:
+        app.logger.error(f"<ERROR> {e} occurred while removing hostname={hostname}")
+        raise e 
+    app.logger.info(f"Server with hostname={hostname} removed successfully")
 
 
 @app.route('/rm', methods=['DELETE'])
-async def rm(payload = None):
+async def remove_servers():
     payload = await request.get_json()
-    num_rm_servers = payload['n']
-    rm_servers = payload['servers']
-
-    if num_rm_servers is None or rm_servers is None:
-        response = jsonify(message = '<Error> Invalid payload', status = 'failure')
-        response.status_code = 400
-        return response
-
-    # if there are more servers in rm_servers than the number of servers in the network, then throw error
-    if num_rm_servers < len(rm_servers):
-        response = jsonify(message = '<Error> Length of hostname list is more than removable instances', status = 'failure')
-        response.status_code = 400
-        return response
+    n = payload.get("n")
+    servers = payload.get("servers")
     
-    # retrieve the servers from MapT
-    non_unique_temp = []
-    for i in range(len(MapT["Shard_id"])):
-        shard_id = MapT["Shard_id"][i]
-        server_id = MapT["Server_id"][i]
-        non_unique_temp.append(server_id)
-    temp = list(set(non_unique_temp))
-    containers = {}
-    for server_id in temp:
-        containers[server_id] = server_id    
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT DISTINCT Server_id FROM MapT")
-    #     temp = cursor.fetchall()
-    #     connection.commit()
+    if not n or not servers:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
+
+    for server in servers:
+        if server not in server_to_id:
+            return jsonify(message=f"<ERROR> {server} is not a valid server name", status="failure"), 400
+
+    random_cnt = n - len(servers)
+    remove_keys = []
+    try:
+        for server in servers:
+            remove_container(hostname=server)
+        if random_cnt > 0 :
+            remove_keys = random.sample(list(server_to_id.keys()), random_cnt)
+            for server in remove_keys:
+                remove_container(hostname=server)
+    except Exception as e:
+        return jsonify(message=f"<ERROR> {e} occurred while removing", status="failure"), 400
     
-    # if there is a server in rm_servers that is not present in containers, then throw error
-    for server in rm_servers:
-        if server not in containers:
-            response = jsonify(message = '<Error> Server not found', status = 'failure')
-            response.status_code = 400
-            return response
+    remove_keys.extend(servers)
+    return jsonify({"message": {"N": len(servers_to_shard), "servers": remove_keys}, "status": "success"}), 200
 
-    # if there are not enough servers in rm_servers, then randomly select servers from containers
-    if num_rm_servers > len(rm_servers):
-        other_servers = list(set(containers) - set(rm_servers))
-        num_needed = num_rm_servers - len(rm_servers)
-
-        # randomly select num_needed servers from other_servers
-        rm_servers += random.sample(other_servers, num_needed)
-
-    indexes = []
-    for server_name in rm_servers:
-        # identify the shards present in the server from MapT
-        for i in range(len(MapT["Server_id"])): 
-            if MapT["Server_id"][i] == server_name:
-                shard_id = MapT["Shard_id"][i]
-                ch = consistent_hash_maps[shard_id]
-                ch.remove_server(server_name)
-                indexes.append(i)
-        
-        # remove the server from MapT
-        for index in sorted(indexes, reverse = True):
-            MapT["Shard_id"].pop(index)
-            MapT["Server_id"].pop(index)
-        
-        
-        # with connection.cursor() as cursor:
-        #     cursor.execute("SELECT Shard_id FROM MapT WHERE Server_id = %s", (server_name))
-        #     shard_data = cursor.fetchall()
-        #     cursor.execute("DELETE FROM MapT WHERE Server_id = %s", (server_name))
-        #     connection.commit()
-        
-        # remove the server from each shard's hash map
-        # for row in shard_data:
-        #     shard_id = row['Shard_id']
-        #     ch = consistent_hash_maps[shard_id]
-
-        #     # server_id = server_hostname_to_id[server_name]
-        #     ch.remove_server(server_name)
-
-        # # remove the server_name from the consistent hash map
-        # server_id = server_hostname_to_id[server_name]
-        # ch.remove_server(server_name)
-        # server_id_to_hostname.pop(server_id)
-        # server_hostname_to_id.pop(server_name)
-
-        # remove the docker container
-        try:
-            container = client.containers.get(server_name)
-            container.stop()
-            container.remove()
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to remove docker container', 
-                        status = 'failure')
-            response.status_code = 400
-            return response
-
-    # retrieve the servers from MapT
-    non_unique_temp = []
-    for i in range(len(MapT["Shard_id"])):
-        shard_id = MapT["Shard_id"][i]
-        server_id = MapT["Server_id"][i]
-        non_unique_temp.append(server_id)
-    containers = list(set(non_unique_temp))
-
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT DISTINCT Server_id FROM MapT")
-    #     temp = cursor.fetchall()
-    #     connection.commit()
-    # containers = []
-    # for row in temp:
-    #     server_id = row['Server_id']
-    #     containers.append(server_id)
-
-    message = {
-        'N': len(containers),
-        'servers': containers
-    }
-
-    response = jsonify(message = message, status = 'successful')
-    response.status_code = 200
-    return response
-
-
+# from here not completely done
 @app.route('/read', methods=['POST'])
-async def read(payload = None):
+async def read():
     payload = await request.get_json()
-    stud_id = payload['Stud_id']
-    low_idx = stud_id['low']
-    high_idx = stud_id['high']
-
-    # identify the shard_ids from the student_ids in the payload
-    shard_ids = []
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT Shard_id, Stud_id_low, Shard_size FROM ShardT")
-    #     temp = cursor.fetchall()
-    #     connection.commit()
+    stud_id = payload.get("Stud_id")
+    if not stud_id:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
+    low = stud_id.get("low")
+    high = stud_id.get("high")
 
-    for i in range(len(ShardT["Shard_id"])):
-        Stud_id_low = ShardT["Stud_id_low"][i]
-        Stud_id_high = Stud_id_low + ShardT["Shard_size"][i]
-        shard_id = ShardT["Shard_id"][i]
-
-        if max(Stud_id_low, low_idx) <= min(Stud_id_high, high_idx):
-            shard_ids.append(shard_id)
-
-    # for row in temp:
-    #     Stud_id_low = row['Stud_id_low']
-    #     Stud_id_high = Stud_id_low + row['Shard_size']
-    #     shard_id = row['Shard_id']
-
-    #     if low_idx >= Stud_id_low and high_idx < Stud_id_high:
-    #         shard_ids.append(shard_id)
+    if not low or not high:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
-    # retrieve data from the shards
+    lower_shard_index = bisect_right(prefix_shard_sizes, low)
+    upper_shard_index = bisect_left(prefix_shard_sizes, high+1)
+    lower_shard_index -= 1
+    shardIndex = lower_shard_index
+    shards_queried = [shard["Shard_id"] for shard in shardT[lower_shard_index:upper_shard_index]]
+    
     data = []
-    for shard_id in shard_ids:
-        global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
-        await locks[shard_id].acquire()
-        while write_in_progress[shard_id] or (writer_priority and writers_waiting[shard_id] > 0):
-            readers_waiting[shard_id] += 1
-            locks[shard_id].release()
-            await asyncio.sleep(0.1)
-            await locks[shard_id].acquire()
-            readers_waiting[shard_id] -= 1
 
-        # critical section for reader
-        request_id = random.randint(100000, 999999)
-        ch = consistent_hash_maps[shard_id]
-        server_name = ch.get_server(request_id)
+    for shard in shards_queried:
+        serverId = shard_hash_map[shard].getServer(random.randint(100000, 1000000))
+        server = id_to_server[serverId]
+        async with aiohttp.ClientSession() as session:
+            spayload = {"shard": shard , "Stud_id": {"low": max(low, prefix_shard_sizes[shardIndex]), "high": min(high, prefix_shard_sizes[shardIndex]+shardT[shardIndex]["Shard_size"]-1)}}
+            app.logger.info(f"Reading from {server} for shard {shard} with payload {spayload}")
+            async with session.post(f'http://{server}:5000/read', json=spayload) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    data.extend(result.get("data", []))
+                else:
+                    app.logger.error(f"Error while reading from {server} for shard {shard}")
+                    return jsonify({"message": "Error while reading", "status": "failure"}), 500
 
-        url = f'http://{server_name}:5000/read'
-        payload = {}
-        payload['shard'] = shard_id
-        payload['Stud_id'] = {'low': low_idx, 'high': high_idx}
+            shardIndex += 1
+                
+    return jsonify({"shards_queried": shards_queried, "data": data, "status": "success"}), 200
 
-        try:
-            async with aiohttp.ClientSession() as client_session:
-                async with client_session.post(url, json = payload) as response:
-                    response_json = await response.json()
-                    print(response_json)
-
-                    if response.status != 200:
-                        response = jsonify(message = f'<Error> Failed to read from server {server_name}', status = 'failure')
-                        response.status_code = 400
-                        locks[shard_id].release() # release the lock
-                        return response
-            
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to read from server', status = 'failure')
-            response.status_code = 400
-            locks[shard_id].release() # release the lock
-            return response
-        
-        data += response_json['data']
-        locks[shard_id].release() # release the lock
-
-    response = jsonify(shards_queried = shard_ids, data = data, status = 'success')
-    response.status_code = 200
-    return response
 
 @app.route('/write', methods=['POST'])
-async def write(payload = None):
+async def write():
     payload = await request.get_json()
-    data = payload['data']
-
-    # group writes for each shard
-    shard_id_to_data = {}
-    for entry in data:
-        stud_id = entry['Stud_id']
-        shard_id = get_shard_id(stud_id)
-        if shard_id is None:
-            response = jsonify(message = '<Error> Student ID not found', status = 'failure')
-            response.status_code = 400
-            return response
-        
-        if shard_id not in shard_id_to_data:
-            shard_id_to_data[shard_id] = []
-        shard_id_to_data[shard_id].append(entry)
-
-    for shard_id, data in shard_id_to_data.items():
-        # acquire the lock
-        global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
-        await locks[shard_id].acquire()
-        writers_waiting[shard_id] += 1
-        while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
-            locks[shard_id].release()
-            await asyncio.sleep(0.1)
-            await locks[shard_id].acquire()
-        writers_waiting[shard_id] -= 1
-        write_in_progress[shard_id] = True
-
-        # critical section for write
-        temp = []
-        for i in range (len(MapT["Shard_id"])):
-            if MapT["Shard_id"][i] == shard_id:
-                temp.append(MapT["Server_id"][i])
-        valid_idx = 0
-        for i in range (len(ShardT["Shard_id"])):
-            if ShardT["Shard_id"][i] == shard_id:
-                valid_idx = ShardT["valid_idx"][i]
-        # with connection.cursor() as cursor:
-        #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
-        #     temp = cursor.fetchall()
-        #     cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
-        #     valid_idx = cursor.fetchone()['valid_idx']
-        #     connection.commit()
-        
-        for server_name in temp:
-            url = f'http://{server_name}:5000/write'
-            payload = {}
-            payload['shard'] = shard_id
-            payload['curr_idx'] = valid_idx
-            payload['data'] = data
-
-            try:
-                async with aiohttp.ClientSession() as client_session:
-                    async with client_session.post(url, json = payload) as response:
-                        response_json = await response.json()
-                        print(response_json)
-
-                        if response.status != 200:
-                            response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
-                            response.status_code = 400
-                            write_in_progress[shard_id] = False
-                            locks[shard_id].release()
-                            return response
-
-            except Exception as e:
-                print(e)
-                response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
-                response.status_code = 400
-                write_in_progress[shard_id] = False
-                locks[shard_id].release()
-                return response
-
-        # update the valid_idx in ShardT
-        for i in range(len(ShardT["Shard_id"])):
-            if ShardT["Shard_id"][i] == shard_id:
-                ShardT["valid_idx"][i] = valid_idx + len(data)
-
-        # with connection.cursor() as cursor:
-        #     cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
-        #     temp = cursor.fetchone()
-        #     valid_idx = temp['valid_idx']
-        #     cursor.execute("UPDATE ShardT SET valid_idx = %s WHERE Shard_id = %s", (valid_idx + len(data), shard_id))
-        #     connection.commit()
-
-        # release the lock
-        write_in_progress[shard_id] = False
-        locks[shard_id].release()
-
-    response = jsonify(message = f'{len(data)} Data entries added', status = 'success')
-    response.status_code = 200
-    return response
-
-    # await before_critical_write(shard)
-
-    # # critical section for write
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard))
-    #     temp = cursor.fetchall()
-    #     connection.commit()
+    data = payload.get("data")
+    if not data:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
-    # for row in temp:
-    #     server_name = row['Server_id']
-    #     url = f'http://{server_name}:5000/write'
-    #     payload = {}
-    #     payload['shard'] = shard
-    #     payload['data'] = data
+    shards_to_data = {}
 
-    #     try:
-    #         async with aiohttp.ClientSession() as client_session:
-    #             async with client_session.post(url, json = payload) as response:
-    #                 response_json = await response.json()
-    #                 print(response_json)
-
-    #                 if response.status != 200:
-    #                     response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
-    #                     response.status_code = 400
-    #                     after_critical_write(shard)
-    #                     return response
-
-    #     except Exception as e:
-    #         print(e)
-    #         response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
-    #         response.status_code = 400
-    #         after_critical_write(shard)
-    #         return response
-
-    # after_critical_write(shard)
+    # can be optimised instead of binary search, by sorting wrt to Stud_id
+    for record in data:
+        stud_id = record.get("Stud_id")
+        shardIndex = bisect_right(prefix_shard_sizes, stud_id)
+        if shardIndex == 0 or (shardIndex == len(prefix_shard_sizes) and stud_id >= prefix_shard_sizes[-1]+shardT[-1]["Shard_size"]):
+            return jsonify({"message": "Invalid Stud_id", "status": "failure"}), 400
+        shard = shardT[shardIndex-1]["Shard_id"]
+        shards_to_data[shard] = shards_to_data.get(shard, [])
+        shards_to_data[shard].append(record)
+    
+    for shard, data in shards_to_data.items():
+        async with shard_write_lock[shard]:
+            async with aiohttp.ClientSession() as session:
+                tasks = []
+                for server in shard_to_servers[shard]:
+                    app.logger.info(f"Writing to {server} for shard {shard}")
+                    payload = {"shard": shard, "curr_idx": 1, "data": data}
+                    task = asyncio.create_task(session.post(f'http://{server}:5000/write', json=payload))
+                    tasks.append(task)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for result in results:
+                    if isinstance(result, Exception):
+                        app.logger.error(f"Error while writing to {server} for shard {shard}, got exception {result}")
+                        return jsonify({"message": "Error while writing", "status": "failure"}), 500
+                    if result.status != 200:
+                        app.logger.error(f"Error while writing to {server} for shard {shard}, got status {result.status}")
+                        return jsonify({"message": "Error while writing", "status": "failure"}), 500
+                    
+    return jsonify({"message": f"{len(data)} Data entries added", "status": "success"}), 200
 
 @app.route('/update', methods=['PUT'])
-async def update(payload = None):
+async def update():
     payload = await request.get_json()
-    stud_id = payload['Stud_id']
-    data = payload['data']
-    shard_id = get_shard_id(stud_id)
-
-    if shard_id is None:
-        response = jsonify(message = '<Error> Student ID not found', status = 'failure')
-        response.status_code = 400
-        return response
+    stud_id = payload.get("Stud_id")
+    data = payload.get("data")
+    if not stud_id or not data:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
-    # acquire the lock
-    global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
-    await locks[shard_id].acquire()
-    writers_waiting[shard_id] += 1
-    while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
-        locks[shard_id].release()
-        await asyncio.sleep(0.1)
-        await locks[shard_id].acquire()
-    writers_waiting[shard_id] -= 1
-    write_in_progress[shard_id] = True
+    stud_name = data.get("Stud_name")
+    stud_marks = data.get("Stud_marks")
 
-    # critical section for write
-    temp = []
-    for i in range (len(MapT["Shard_id"])):
-        if MapT["Shard_id"][i] == shard_id:
-            temp.append(MapT["Server_id"][i])
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
-    #     temp = cursor.fetchall()
-    #     connection.commit()
-        
-    for server_name in temp:
-        url = f'http://{server_name}:5000/update'
-        payload = {}
-        payload['shard'] = shard_id
-        payload['Stud_id'] = stud_id
-        payload['data'] = data
-
-        try:
-            async with aiohttp.ClientSession() as client_session:
-                async with client_session.post(url, json = payload) as response:
-                    response_json = await response.json()
-                    print(response_json)
-
-                    if response.status != 200:
-                        response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
-                        response.status_code = 400
-                        write_in_progress[shard_id] = False
-                        locks[shard_id].release()
-                        return response
-
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
-            response.status_code = 400
-            write_in_progress[shard_id] = False
-            locks[shard_id].release()
-            return response
-
-    # # update the valid_idx in ShardT
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
-    #     temp = cursor.fetchone()
-    #     valid_idx = temp['valid_idx']
-    #     cursor.execute("UPDATE ShardT SET valid_idx = %s WHERE Shard_id = %s", (valid_idx + len(data), shard_id))
-    #     connection.commit()
-
-    # release the lock
-    write_in_progress[shard_id] = False
-    locks[shard_id].release()
-
-    response = jsonify(message = f'Data entry for Stud_id: {stud_id} updated', status = 'success')
-    response.status_code = 200
-    return response
+    if not stud_name and not stud_marks:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
-    # await before_critical_write(shard_id)
-    
-    # # critical section for write
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
-    #     temp = cursor.fetchall()
-    #     connection.commit()
+    shardIndex = bisect_right(prefix_shard_sizes, stud_id)
+    shardIndex -= 1
 
-    # for row in temp:
-    #     server_name = row['Server_id']
-    #     url = f'http://{server_name}:5000/update'
-    #     payload = {}
-    #     payload['shard'] = shard_id
-    #     payload['Stud_id'] = stud_id
-    #     payload['data'] = data
+    shard = shardT[shardIndex]["Shard_id"]
 
-    #     try:
-    #         async with aiohttp.ClientSession() as client_session:
-    #             async with client_session.put(url, json = payload) as response:
-    #                 response_json = await response.json()
-    #                 print(response_json)
-
-    #                 if response.status != 200:
-    #                     response = jsonify(message = f'<Error> Failed to update server {server_name}', status = 'failure')
-    #                     response.status_code = 400
-    #                     after_critical_write(shard_id)
-    #                     return response
-
-    #     except Exception as e:
-    #         print(e)
-    #         response = jsonify(message = '<Error> Failed to update server', status = 'failure')
-    #         response.status_code = 400
-    #         after_critical_write(shard_id)
-    #         return response
-
-    # after_critical_write(shard_id)
-
-    # response = jsonify(message = f'Data entry for Stud_id{stud_id} updated', status = 'success')
-    
+    async with shard_write_lock[shard]:
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for server in shard_to_servers[shard]:
+                payload = {"shard": shard, "Stud_id": stud_id, "data": data}
+                task = asyncio.create_task(session.put(f'http://{server}:5000/update', json=payload))
+                tasks.append(task)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    app.logger.error(f"Error while updating to {server} for shard {shard}, got exception {result}")
+                    return jsonify({"message": "Error while updating", "status": "failure"}), 500
+                if result.status != 200:
+                    app.logger.error(f"Error while updating to {server} for shard {shard}, got status {result.status}")
+                    return jsonify({"message": "Error while updating", "status": "failure"}), 500
+                
+    return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", "status": "success"}), 200
 
 @app.route('/del', methods=['DELETE'])
-async def delete(payload = None):
+async def delete():
     payload = await request.get_json()
-    stud_id = payload['Stud_id']
-    shard_id = get_shard_id(stud_id)
-
-    if shard_id is None:
-        response = jsonify(message = '<Error> Student ID not found', status = 'failure')
-        response.status_code = 400
-        return response
-
-    # acquire the lock
-    global resource, readers_waiting, writers_waiting, write_in_progress, writer_priority
-    await locks[shard_id].acquire()
-    writers_waiting[shard_id] += 1
-    while write_in_progress[shard_id] or (readers_waiting[shard_id] > 0):
-        locks[shard_id].release()
-        await asyncio.sleep(0.1)
-        await locks[shard_id].acquire()
-    writers_waiting[shard_id] -= 1
-    write_in_progress[shard_id] = True
-
-    # critical section for write
-    temp = []
-    for i in range (len(MapT["Shard_id"])):
-        if MapT["Shard_id"][i] == shard_id:
-            temp.append(MapT["Server_id"][i])
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
-    #     temp = cursor.fetchall()
-    #     connection.commit()
-        
-    for server_name in temp:
-        url = f'http://{server_name}:5000/del'
-        payload = {}
-        payload['shard'] = shard_id
-        payload['Stud_id'] = stud_id
-
-        try:
-            async with aiohttp.ClientSession() as client_session:
-                async with client_session.post(url, json = payload) as response:
-                    response_json = await response.json()
-                    print(response_json)
-
-                    if response.status != 200:
-                        response = jsonify(message = f'<Error> Failed to write to server {server_name}', status = 'failure')
-                        response.status_code = 400
-                        write_in_progress[shard_id] = False
-                        locks[shard_id].release()
-                        return response
-
-        except Exception as e:
-            print(e)
-            response = jsonify(message = '<Error> Failed to write to server', status = 'failure')
-            response.status_code = 400
-            write_in_progress[shard_id] = False
-            locks[shard_id].release()
-            return response
-
-    # # update the valid_idx in ShardT
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT valid_idx FROM ShardT WHERE Shard_id = %s", (shard_id))
-    #     temp = cursor.fetchone()
-    #     valid_idx = temp['valid_idx']
-    #     cursor.execute("UPDATE ShardT SET valid_idx = %s WHERE Shard_id = %s", (valid_idx + len(data), shard_id))
-    #     connection.commit()
-
-    # release the lock
-    write_in_progress[shard_id] = False
-    locks[shard_id].release()
-
-    response = jsonify(message = f'Data entry with Stud_id:{stud_id} removed from all replicas', status = 'success')
-    response.status_code = 200
-    return response
+    stud_id = payload.get("Stud_id")
+    if not stud_id:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
-    # await before_critical_write(shard_id)
+    shardIndex = bisect_right(prefix_shard_sizes, stud_id)
+    shardIndex -= 1
 
-    # # critical section for write
-    # with connection.cursor() as cursor:
-    #     cursor.execute("SELECT Server_id FROM MapT WHERE Shard_id = %s", (shard_id))
-    #     temp = cursor.fetchall()
-    #     connection.commit()
-    
-    # for row in temp:
-    #     server_name = row['Server_id']
-    #     url = f'http://{server_name}:5000/del'
-    #     payload = {}
-    #     payload['shard'] = shard_id
-    #     payload['Stud_id'] = stud_id
+    shard = shardT[shardIndex]["Shard_id"]
 
-    #     try:
-    #         async with aiohttp.ClientSession() as client_session:
-    #             async with client_session.delete(url, json = payload) as response:
-    #                 response_json = await response.json()
-    #                 print(response_json)
+    async with shard_write_lock[shard]:
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for server in shard_to_servers[shard]:
+                payload = {"shard": shard, "Stud_id": stud_id}
+                task = asyncio.create_task(session.delete(f'http://{server}:5000/del', json=payload))
+                tasks.append(task)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    app.logger.error(f"Error while deleting to {server} for shard {shard}, got exception {result}")
+                    return jsonify({"message": "Error while deleting", "status": "failure"}), 500
+                if result.status != 200:
+                    app.logger.error(f"Error while deleting to {server} for shard {shard}, got status {result.status}")
+                    return jsonify({"message": "Error while deleting", "status": "failure"}), 500
+                
+    return jsonify({"message": f"Data entry with Stud_id: {stud_id} removed from all replicas", "status": "success"}), 200
 
-    #                 if response.status != 200:
-    #                     response = jsonify(message = f'<Error> Failed to delete server {server_name}', status = 'failure')
-    #                     response.status_code = 400
-    #                     after_critical_write(shard_id)
-    #                     return response
+@app.before_serving
+async def startup():
+    app.logger.info("Starting the load balancer")
+    global available_servers
+    available_servers = [i for i in range(100000, 1000000)]
+    random.shuffle(available_servers)
+    loop = asyncio.get_event_loop()
+    loop.create_task(periodic_heatbeat_check())
 
-    #     except Exception as e:
-    #         print(e)
-    #         response = jsonify(message = '<Error> Failed to delete server', status = 'failure')
-    #         response.status_code = 400
-    #         after_critical_write(shard_id)
-    #         return response
-    # after_critical_write(shard_id)
-
-    # response = jsonify(message = f'Data entry with Stud_id{stud_id} removed', status = 'success')
+@app.after_serving
+async def cleanup():
+    app.logger.info("Stopping the load balancer")
 
 if __name__ == '__main__':
-    # initialise the tables MapT and ShardT
-    # with connection.cursor() as cursor:
-    #     cursor.execute("CREATE TABLE IF NOT EXISTS MapT (Shard_id VARCHAR(255), Server_id VARCHAR(255))")
-    #     cursor.execute("CREATE TABLE IF NOT EXISTS ShardT (Shard_id VARCHAR(255), Stud_id_low INT, Shard_size INT, valid_idx INT)")
-    #     connection.commit()
-
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=PORT, debug=False)

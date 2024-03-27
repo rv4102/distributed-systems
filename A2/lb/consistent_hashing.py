@@ -1,153 +1,68 @@
 from sortedcontainers import SortedList
-import random
+from bisect import bisect_left
 
 class ConsistentHashMap:
-    """
-    This class consists of a consistent hash map with support for addition of new server instances and removal of existing server instances.
+
+    def __init__(self, nservers=6, nslots=512, nvirtual=9, requestHashfn=None, vserverHashfn=None, probing='linear'):
+        self.nservers = nservers
+        self.nslots = nslots
+        self.nvirtual = nvirtual
+        self.requestHashfn = requestHashfn
+        if self.requestHashfn is None:
+            self.requestHashfn = self.default_requestHashfn
+        self.vserverHashfn = vserverHashfn
+        if self.vserverHashfn is None:
+            self.vserverHashfn = self.default_vserverHashfn
+
+        if probing == 'linear':
+            self.probe = self.linear_probe
+        elif probing == 'quadratic':
+            self.probe = self.quadratic_probe
+
+        self.slot_to_server = [-1]*self.nslots
+        self.server_to_slots = {}
+        self.allocated_slots = SortedList()
+
+    def default_requestHashfn(self, requestId) -> int:
+        return (requestId*requestId+2*requestId+17)%self.nslots
     
-    Attributes:
-        num_server_containers: number of server containers
-        num_virtual_servers: number of virtual servers per server container
-        num_slots: number of slots in the consistent hash map
-    """
-
-    def __init__(self, num_server_containers : int = 3, num_virtual_servers = 9, num_slots = 512) -> None:
-        """
-        The constructor for ConsistentHashMap class.
-        :param num_server_containers: number of server containers
-        :param num_virtual_servers: number of virtual servers per server container
-        :param num_slots: number of slots in the consistent hash map
-        """
-        self.num_server_containers = num_server_containers
-        self.num_virtual_servers = num_virtual_servers
-        self.num_slots = num_slots
-        self.name_to_id = {}
-        self.id_to_name = {}
-
-        # we create two arrays, one for storing the node themselves, and the other for storing the index of each server in the consistent hash map
-        self.sorted_keys = SortedList()
-        self.ring = [None] * self.num_slots
-        # self.server_nodes = [] * self.num_server_containers
-        self.server_indexes = {}
-
-
-    def modulo(self, a: int, b: int) -> int:
-        """
-        Function implements modulo operation.
-        """
-        temp = a % b
-        if temp < 0:
-            temp += b
-            temp %= b
-        
-        return temp
-
-
-    def virt_serv_hash_func(self, i: int, j: int) -> int:
-        """
-        This function is used to calculate hash value for a virtual server.
-        :param i: server ID
-        :param j: virtual server replica ID of server i
-        :return: hash value
-        """
-        i, j = int(i), int(j)
-        hash_val = int(i**2 + j**2 + 2*j + 25)
-        return hash_val
+    def default_vserverHashfn(self, serverId, virtualId) -> int:
+        return (serverId*serverId+virtualId*virtualId+2*virtualId+25)%self.nslots
     
-
-    def req_hash_func(self, i: int) -> int:
-        """
-        This function is used to calculate hash value for a request.
-        :param i: request ID for a client request
-        :return: hash value 
-        """
-        i = int(i)
-        hash_val =  int(i**2 + 2*i + 17)
-        return hash_val
-
- 
-    def __get_empty_slot__(self, hash_val) -> None:
-        """
-        This function implements quadratic probing to insert a virtual server instance into the consistent hash map.
-        :param hash_val: hash value of the virtual server instance
-        """
-        def probing_func(i: int) -> int:
-            return (hash_val + i**2)
-        
-        for i in range(self.num_slots):
-            slot = self.modulo(probing_func(i), self.num_slots)
-            
-            if self.ring[slot] == None:
-                return slot
-        
-        return -1
+    def linear_probe(self, hashValue) -> int:
+        while self.slot_to_server[hashValue] != -1:
+            hashValue = (hashValue+1)%self.nslots
+        return hashValue
     
-    def get_id_from_name(self, server_name: str) -> int:
-        """
-        This function is used to get the server ID from the server name.
-        :param server_name: Name of the server instance
-        :return: ID of the server instance
-        """
-        if server_name not in self.name_to_id:
-            return None
-        return self.name_to_id[server_name]
+    def quadratic_probe(self, hashValue) -> int:
+        i = 1
+        while self.slot_to_server[hashValue] != -1:
+            hashValue = (hashValue+i*i)%self.nslots
+            i += 1
+        return hashValue
+    
+    def addServer(self, serverId) -> None:
+        serverSlots = []
+        for virtualId in range(self.nvirtual):
+            hashValue = self.vserverHashfn(serverId, virtualId)
+            hashValue = self.probe(hashValue)
+            self.slot_to_server[hashValue] = serverId
+            self.allocated_slots.add(hashValue)
+            serverSlots.append(hashValue)
+        self.server_to_slots[serverId] = serverSlots
 
+    def removeServer(self, serverId) -> None:
+        if serverId not in self.server_to_slots:
+            return
+        for slot in self.server_to_slots[serverId]:
+            self.slot_to_server[slot] = -1
+            self.allocated_slots.remove(slot)
+        del self.server_to_slots[serverId]
 
-    def add_server(self, server_name: str) -> None:
-        """
-        This function is used to add a new server instance to the consistent hash map.
-        :param server_name: Name of the new server instance
-        """
-        server_id = random.randint(100000, 999999)
-        self.name_to_id[server_name] = server_id
-        self.id_to_name[server_id] = server_name
-
-        self.server_indexes[server_id] = [None] * self.num_virtual_servers
-
-        for i in range(self.num_virtual_servers):
-            temp_hash_val = self.virt_serv_hash_func(server_id, i)
-            hash_val = self.modulo(temp_hash_val, self.num_slots)
-
-            slot = self.__get_empty_slot__(hash_val)
-
-            if slot == -1:
-                raise Exception("No empty slot found in the consistent hash map.")
-
-            self.sorted_keys.add(slot)
-            self.ring[slot] = server_id
-            self.server_indexes[server_id][i] = slot
-
-
-    def remove_server(self, server_name: str) -> None:
-        """
-        This function is used to remove an existing server instance from the consistent hash map.
-        :param server_name: Name of the server instance to be removed
-        """
-        server_id = self.name_to_id[server_name]
-
-        for i in range(self.num_virtual_servers):
-            slot = self.server_indexes[server_id][i]
-
-            self.sorted_keys.remove(slot)
-            self.ring[slot] = None
-            self.server_indexes[server_id][i] = None
-        
-        del self.name_to_id[server_name]
-        del self.id_to_name[server_id]
-            
-
-    def get_server(self, request_id: int) -> int:
-        """
-        This function is used to get the server instance to which a request is routed.
-        :param request_id: ID of the request
-        :return: ID of the server instance to which the request is routed
-        """
-        hash_val = self.req_hash_func(request_id)
-        slot = self.modulo(hash_val, self.num_slots)
-
-        idx = self.sorted_keys.bisect_left(slot)
-        if idx == len(self.sorted_keys):
-            idx = 0
-        
-        id = self.ring[self.sorted_keys[idx]]
-        return self.id_to_name[id]
+    def getServer(self, requestId) -> int:
+        if len(self.server_to_slots) == 0:
+            return -1
+        hashValue = self.allocated_slots[bisect_left(
+            self.allocated_slots, self.requestHashfn(requestId)) % len(self.allocated_slots)]
+        return self.slot_to_server[hashValue]
+    
