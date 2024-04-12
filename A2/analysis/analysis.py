@@ -25,7 +25,7 @@ def launch_rw_requests(low_idx, high_idx):
     generator = PayloadGenerator(low_idx, high_idx)
     num_rw = 100
     shuffled_endpoints = ["/read"]*num_rw + ["/write"]*num_rw
-    random.shuffle(shuffled_endpoints)
+    # random.shuffle(shuffled_endpoints)
 
     read_time = []
     write_time = []
