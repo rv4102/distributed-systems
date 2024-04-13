@@ -452,6 +452,56 @@ async def delete():
                 
     return jsonify({"message": f"Data entry with Stud_id: {stud_id} removed from all replicas", "status": "success"}), 200
 
+@app.route('/get_shard_servers', methods=['GET'])
+async def get_shard_servers():
+    shard = request.args.get('shard')
+    if not shard:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
+
+    servers = shard_to_servers.get(shard, [])
+    return jsonify({"shard": shard, "servers": servers, "status": "success"}), 200
+
+# write an endpoint to select primary server for a shard
+@app.route('/primary_elect', methods=['GET'])
+async def primary_elect():
+    shard = request.args.get('shard')
+    if not shard:
+        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
+    
+    # fetch the server with most updated log entry
+    candidates = shard_to_servers.get(shard, [])
+    if not candidates:
+        return jsonify({"message": "No replicas found for shard", "status": "failure"}), 400
+
+    # call an endpoint on each server to get number of entries corresponding to shard
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for server in candidates:
+            json = {"shard": shard}
+            task = asyncio.create_task(session.get(f'http://{server}:5000/get_log_count', json=json))
+            tasks.append(task)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        entries = []
+        for result in results:
+            if isinstance(result, Exception):
+                app.logger.error(f"Error while fetching entries from server, got exception {result}")
+                return jsonify({"message": "Error while fetching entries", "status": "failure"}), 500
+            if result.status != 200:
+                app.logger.error(f"Error while fetching entries from server, got status {result.status}")
+                return jsonify({"message": "Error while fetching entries", "status": "failure"}), 500
+            entries.append(await result.json())
+        
+        max_entries = -1
+        primary_server = None
+        for idx, entry in enumerate(entries):
+            if entry > max_entries:
+                max_entries = entry
+                primary_server = candidates[idx]
+
+
+    return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
+    
+
 @app.before_serving
 async def startup():
     app.logger.info("Starting the load balancer")
