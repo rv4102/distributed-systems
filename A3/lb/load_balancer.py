@@ -505,6 +505,7 @@ async def primary_elect():
 @app.before_serving
 async def startup():
     app.logger.info("Starting the load balancer")
+    os.popen(f"docker run --name metadata --network net1 --network-alias metadata -d metadata").read()
     global available_servers
     available_servers = [i for i in range(100000, 1000000)]
     random.shuffle(available_servers)
