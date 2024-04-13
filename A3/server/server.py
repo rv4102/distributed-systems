@@ -6,8 +6,9 @@ import os
 
 app = Flask(__name__)
 sql = SQLHandler()
-server_name = os.environ['SERVER_NAME']
-primary_shards = []
+# server_name = os.environ['SERVER_NAME']
+server_name = 'server1'
+primary_shards = [] 
 logfile = []
 
 async def get_shard_servers(shard_id):
@@ -182,6 +183,9 @@ def handle_exception(e):
     else:
         return jsonify({"message": "Internal server Error: check params", "status": "error"}), 500
 
+@app.before_request
+async def startup():
+    app.logger.info("Starting Server")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
