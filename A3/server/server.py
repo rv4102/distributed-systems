@@ -10,6 +10,7 @@ sql = SQLHandler()
 server_name = 'server1'
 primary_shards = [] 
 logfile = []
+shard_to_logcount = {}
 
 async def get_shard_servers(shard_id):
     async with aiohttp.ClientSession() as session:
@@ -24,6 +25,24 @@ async def write_shard_data(serverName, shard, data):
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard, "data": data}
         async with session.post(f'http://{serverName}:5000/write', json=payload) as resp:
+            if resp.status == 200:
+                return True
+            else:
+                return False
+
+async def update_shard_data(serverName, shard, Stud_id, data):
+    async with aiohttp.ClientSession() as session:
+        payload = {"shard": shard, "Stud_id": Stud_id, "data": data}
+        async with session.put(f'http://{serverName}:5000/update', json=payload) as resp:
+            if resp.status == 200:
+                return True
+            else:
+                return False
+
+async def delete_shard_data(serverName, shard, Stud_id):
+    async with aiohttp.ClientSession() as session:
+        payload = {"shard": shard, "Stud_id": Stud_id}
+        async with session.delete(f'http://{serverName}:5000/del', json=payload) as resp:
             if resp.status == 200:
                 return True
             else:
@@ -106,11 +125,14 @@ def write_data():
     
     # this server is a primary server if shard is in primary_shards
     logfile.append(f"ADD {shard}, {data['Stud_id']}, {data['Stud_name']}, {data['Stud_marks']}")
+    shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
         servers = get_shard_servers(shard)
         if servers is None:
             return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
         for server in servers:
+            if server == server_name:
+                continue
             response = write_shard_data(server, shard, data)
             if response is False:
                 return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500 
@@ -135,6 +157,19 @@ def update_data():
     if not sql.hasDB(dbname=shard):
         return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
 
+    logfile.append(f"UPDATE {shard}, {Stud_id}, {data['Stud_name']}, {data['Stud_marks']}")
+    shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
+    if shard in primary_shards:
+        servers = get_shard_servers(shard)
+        if servers is None:
+            return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
+        for server in servers:
+            if server == server_name:
+                continue
+            response = update_shard_data(server, shard, Stud_id, data)
+            if response is False:
+                return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500
+    
     sql.UseDB(dbname=shard)
     if not sql.Exists(table_name='studT', col="Stud_id", val=Stud_id):
         return jsonify({"message": f"Data entry for Stud_id:{Stud_id} not found", "status": "error"}), 404
@@ -159,6 +194,19 @@ def delete_data():
     if not sql.hasDB(dbname=shard):
         return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
 
+    logfile.append(f"DELETE {shard}, {Stud_id}")
+    shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
+    if shard in primary_shards:
+        servers = get_shard_servers(shard)
+        if servers is None:
+            return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
+        for server in servers:
+            if server == server_name:
+                continue
+            response = delete_shard_data(server, shard, Stud_id)
+            if response is False:
+                return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500
+
     sql.UseDB(dbname=shard)
     if not sql.Exists(table_name='studT', col="Stud_id", val=Stud_id):
         return jsonify({"message": f"Data entry for Stud_id:{Stud_id} not found", "status": "error"}), 404
@@ -169,6 +217,11 @@ def delete_data():
 
     return jsonify(response_data), 200
 
+@app.route('/get_log_count', methods=['GET'])
+def get_log_count():
+    payload = request.get_json()
+    shard = payload.get('shard')
+    return jsonify({"count": shard_to_logcount[shard], "status": "success"}), 200
 
 @app.route('/heartbeat', methods=['GET'])
 def heartbeat():
