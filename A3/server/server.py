@@ -9,8 +9,14 @@ sql = SQLHandler()
 # server_name = os.environ['SERVER_NAME']
 server_name = 'server1'
 primary_shards = [] 
-logfile = []
+logfile = {}
 shard_to_logcount = {}
+
+'''
+    {
+        op, data, seqno
+    }
+'''
 
 async def get_shard_servers(shard_id):
     async with aiohttp.ClientSession() as session:
@@ -22,6 +28,7 @@ async def get_shard_servers(shard_id):
                 return None
 
 async def write_shard_data(serverName, shard, data):
+    
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard, "data": data}
         async with session.post(f'http://{serverName}:5000/write', json=payload) as resp:
@@ -124,7 +131,9 @@ def write_data():
         return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
     
     # this server is a primary server if shard is in primary_shards
-    logfile.append(f"ADD {shard}, {data['Stud_id']}, {data['Stud_name']}, {data['Stud_marks']}")
+    if shard not in logfile:
+        logfile[shard] = []
+    logfile[shard].append(["WRITE", data, len(logfile[shard]) + 1])
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
         servers = get_shard_servers(shard)
@@ -157,7 +166,9 @@ def update_data():
     if not sql.hasDB(dbname=shard):
         return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
 
-    logfile.append(f"UPDATE {shard}, {Stud_id}, {data['Stud_name']}, {data['Stud_marks']}")
+    if shard not in logfile:
+        logfile[shard] = []
+    logfile[shard].append(["UPDATE", data, len(logfile[shard]) + 1])
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
         servers = get_shard_servers(shard)
@@ -194,7 +205,9 @@ def delete_data():
     if not sql.hasDB(dbname=shard):
         return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
 
-    logfile.append(f"DELETE {shard}, {Stud_id}")
+    if shard not in logfile:
+        logfile[shard] = []
+    logfile[shard].append(["DELETE", {"Stud_id": Stud_id}, len(logfile[shard]) + 1])
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
         servers = get_shard_servers(shard)
