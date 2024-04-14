@@ -17,6 +17,8 @@ available_servers = []
 prefix_shard_sizes = []
 shardT = []
 
+shard_to_primary_server = {}
+
 @app.route('/get_log_count', methods=['GET'])
 def get_log_count():
     payload = request.get_json()
@@ -65,6 +67,10 @@ def get_prefix_shard_sizes():
 @app.route('/get_shardT', methods=['GET'])
 def get_shardT():
     return jsonify({"shardT": shardT, "status": "success"}), 200
+
+@app.route('/get_shard_to_primary_server', methods=['GET'])
+def get_shard_to_primary_server():
+    return jsonify({"shard_to_primary_server": shard_to_primary_server, "status": "success"}), 200
 
 
 @app.route('/set_server_to_id', methods=['POST'])
@@ -115,6 +121,22 @@ def set_prefix_shard_sizes():
     prefix_shard_sizes.append(prefix_shard_sizes_new)
     return jsonify({"message": "Prefix shard sizes set", "status": "success"}), 200
 
+@app.route('/set_shardT', methods=['POST'])
+def set_shardT():
+    payload = request.get_json()
+    shardT_new = payload.get('shardT')
+    shardT.clear()
+    shardT.append(shardT_new)
+    return jsonify({"message": "ShardT set", "status": "success"}), 200
+
+@app.route('/set_shard_to_primary_server', methods=['POST'])
+def set_shard_to_primary_server():
+    payload = request.get_json()
+    shard_to_primary_server_new = payload.get('shard_to_primary_server')
+    for shard, server in shard_to_primary_server_new.items():
+        shard_to_primary_server[shard] = server
+    return jsonify({"message": "Shard to primary server mapping set", "status": "success"}), 200
+
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -123,6 +145,8 @@ def handle_exception(e):
         return jsonify({"message": e.msg, "status": "error"}), 400
     else:
         return jsonify({"message": "Internal server Error: check params", "status": "error"}), 500
+
+
 
 @app.before_request
 async def startup():

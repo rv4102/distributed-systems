@@ -65,6 +65,11 @@ async def get_data():
                 result = await resp.json()
                 global shardT
                 shardT = result.get('shardT')
+        async with session.post('http://metadata:5000/get_shard_to_primary_server') as resp:
+            if resp.status == 200:
+                result = await resp.json()
+                global shard_to_primary_server
+                shard_to_primary_server = result.get('shard_to_primary_server')
 
 async def set_data():
     async with aiohttp.ClientSession() as session:
@@ -96,6 +101,10 @@ async def set_data():
         async with session.post('http://metadata:5000/set_shardT', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting shardT")
+        payload = {"shard_to_primary_server": shard_to_primary_server}
+        async with session.post('http://metadata:5000/set_shard_to_primary_server', json=payload) as resp:
+            if resp.status != 200:
+                app.logger.error(f"Error while setting shard_to_primary_server")
 
 # configs server for particular schema and shards
 async def config_server(serverName, schema, shards):
@@ -147,6 +156,7 @@ async def restore_shards(serverName, shards):
 # if old server is respawned then it restores shards from other servers
 # first spawns server, configures it, restores shards, then updates the required maps
 async def spawn_server(serverName=None, shardList=[], schema={"columns":["Stud_id","Stud_name","Stud_marks"], "dtypes":["Number","String","Number"]}):
+    get_data()
     global available_servers
 
     newserver = False
@@ -183,6 +193,7 @@ async def spawn_server(serverName=None, shardList=[], schema={"columns":["Stud_i
                 servers_to_shard[serverName] = shardList
 
             app.logger.info(f"Updated metadata for {containerName}")
+            set_data()    
         except Exception as e:
             app.logger.error(f"Error while spawning {containerName}, got exception {e}")
             return False, ""
@@ -205,13 +216,14 @@ async def check_heartbeat(serverName):
 
 async def periodic_heatbeat_check(interval=2):
     app.logger.info("Starting periodic heartbeat check")
+    get_data()
     while True:
         server_to_id_temp=copy.deepcopy(server_to_id)
         deadServerList=[]
         tasks = [check_heartbeat(serverName) for serverName in server_to_id_temp.keys()]
         results = await asyncio.gather(*tasks)
         results = zip(server_to_id_temp.keys(),results)
-        for serverName,isDown in results:
+        for serverName, isDown in results:
             if isDown == False:
                 app.logger.error(f"Server {serverName} is down")
                 shardList = []  
@@ -220,30 +232,27 @@ async def periodic_heatbeat_check(interval=2):
                     shard_hash_map[shard].removeServer(server_to_id[serverName])
                 deadServerList.append(serverName)
                 del servers_to_shard[serverName]
+                if serverName in shard_to_primary_server.values():
+                    shard = [k for k, v in shard_to_primary_server.items() if v == serverName][0]
+                    shard_to_primary_server.pop(shard)
+                    async with aiohttp.ClientSession(trust_env=True) as client_session:
+                        payload = {'shard': shard}
+                        async with client_session.get('http://shardmanager:5000/primary_elect', json=payload) as resp:
+                            pass
+                            # if resp.status == 200:
+                            #     return True
+                            # else:
+                            #     return False
+
         for serverName in deadServerList:
             await spawn_server(serverName, shardList)
+        set_data()
         await asyncio.sleep(interval)
-
-
-def remove_container(hostname):
-    try:
-        serverId = server_to_id[hostname]
-        shardList = servers_to_shard[hostname]
-        for shard in shardList:
-            shard_hash_map[shard].removeServer(serverId)
-        del servers_to_shard[hostname]
-        available_servers.append(serverId)
-        server_to_id.pop(hostname)
-        id_to_server.pop(serverId)
-        os.system(f"docker stop {hostname} && docker rm {hostname}")
-    except Exception as e:
-        app.logger.error(f"<ERROR> {e} occurred while removing hostname={hostname}")
-        raise e 
-    app.logger.info(f"Server with hostname={hostname} removed successfully")
 
 
 @app.route('/primary_elect', methods=['GET'])
 async def primary_elect():
+    get_data()
     shard = request.args.get('shard')
     if not shard:
         return jsonify({"message": "Invalid payload", "status": "failure"}), 400
@@ -277,7 +286,7 @@ async def primary_elect():
             if log_count > max_entries:
                 max_entries = log_count
                 primary_server = server_name
-
+        shard_to_primary_server[shard] = primary_server
     # call api to set primary on elected server
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard}
@@ -286,6 +295,8 @@ async def primary_elect():
                 return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
             else:
                 return jsonify({"message": "Error while setting primary", "status": "failure"}), 500
+
+    set_data()
 
     # return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
 

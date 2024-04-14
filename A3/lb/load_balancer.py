@@ -22,6 +22,7 @@ shard_to_servers = {}
 servers_to_shard = {}
 prefix_shard_sizes = []
 shardT = []
+shard_to_primary_server = {}
 # clientSession = aiohttp.ClientSession() # will optimise this after every other thing works fine
 
 shard_hash_map:Dict[str, ConsistentHashMap] = defaultdict(ConsistentHashMap)
@@ -65,6 +66,11 @@ async def get_data():
                 result = await resp.json()
                 global shardT
                 shardT = result.get('shardT')
+        async with session.post('http://metadata:5000/get_shard_to_primary_server') as resp:
+            if resp.status == 200:
+                result = await resp.json()
+                global shard_to_primary_server
+                shard_to_primary_server = result.get('shard_to_primary_server')
 
 async def set_data():
     async with aiohttp.ClientSession() as session:
@@ -96,6 +102,10 @@ async def set_data():
         async with session.post('http://metadata:5000/set_shardT', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting shardT")
+        payload = {"shard_to_primary_server": shard_to_primary_server}
+        async with session.post('http://metadata:5000/set_shard_to_primary_server', json=payload) as resp:
+            if resp.status != 200:
+                app.logger.error(f"Error while setting shard_to_primary_server")
 
 # configs server for particular schema and shards
 async def config_server(serverName, schema, shards):
@@ -268,6 +278,18 @@ async def init():
     for result in results:
         if result[0]:
             spawned_servers.append(result[1])
+    for shard,serverlist in shard_to_servers.items():
+        # get a random primary server from serverlist
+        primary_server = random.choice(serverlist)
+        shard_to_primary_server[shard] = primary_server
+        async with aiohttp.ClientSession() as session:
+            payload = {"shard": shard}
+            async with session.post(f'http://{primary_server}:5000/set_primary', json=payload) as resp:
+                if resp.status == 200:
+                    return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
+                else:
+                    return jsonify({"message": "Error while setting primary", "status": "failure"}), 500
+
 
     if len(spawned_servers) == 0:
         return jsonify({"message": "No servers spawned", "status": "failure"}), 500
@@ -322,7 +344,20 @@ async def add_servers():
     for result in results:
         if result[0]:
             spawned_servers.append(result[1])
-
+    
+    for shard,serverlist in shard_to_servers.items():
+        if shard in shard_to_primary_server.keys():
+            continue
+        # get a random primary server from serverlist
+        primary_server = random.choice(serverlist)
+        shard_to_primary_server[shard] = primary_server
+        async with aiohttp.ClientSession() as session:
+            payload = {"shard": shard}
+            async with session.post(f'http://{primary_server}:5000/set_primary', json=payload) as resp:
+                if resp.status == 200:
+                    return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
+                else:
+                    return jsonify({"message": "Error while setting primary", "status": "failure"}), 500
     if len(spawned_servers) == 0:
         return jsonify({"message": "No servers spawned", "status": "failure"}), 500
     
@@ -571,7 +606,7 @@ async def primary_elect():
             if log_count > max_entries:
                 max_entries = log_count
                 primary_server = server_name
-
+        shard_to_primary_server[shard] = primary_server
     # call api to set primary on elected server
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard}
@@ -608,12 +643,7 @@ async def startup():
     global available_servers
     available_servers = [i for i in range(100000, 1000000)]
     random.shuffle(available_servers)
-    # loop = asyncio.get_event_loop()
-    # loop.create_task(periodic_heatbeat_check())
-
-@app.after_serving
-async def cleanup():
-    app.logger.info("Stopping the load balancer")
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT, debug=False)
+    # loop = asyncio.get_event_loop() if resp.status == 200:
+                            #     return True
+                            # else:
+                            #     return False
