@@ -6,17 +6,16 @@ import os
 
 app = Flask(__name__)
 sql = SQLHandler()
-# server_name = os.environ['SERVER_NAME']
-server_name = 'server1'
 primary_shards = [] 
 logfile = {}
 shard_to_logcount = {}
+WAL = "WALOG.txt"
 
-'''
-    {
-        op, data, seqno
-    }
-'''
+def is_running_in_docker():
+    return os.environ.get('DOCKER_CONTAINER') is not None
+
+server_name = os.environ['SERVER_NAME'] if is_running_in_docker() else 'server1'
+
 
 async def get_shard_servers(shard_id):
     async with aiohttp.ClientSession() as session:
@@ -28,7 +27,6 @@ async def get_shard_servers(shard_id):
                 return None
 
 async def write_shard_data(serverName, shard, data):
-    
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard, "data": data}
         async with session.post(f'http://{serverName}:5000/write', json=payload) as resp:
@@ -134,6 +132,11 @@ def write_data():
     if shard not in logfile:
         logfile[shard] = []
     logfile[shard].append(["WRITE", data, len(logfile[shard]) + 1])
+
+    file = open(WAL, "a")
+    file.write(f"WRITE {shard}, {data['Stud_id']}, {data['Stud_name']}, {data['Stud_marks']}\n")
+    file.close()
+
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
         servers = get_shard_servers(shard)
@@ -145,6 +148,7 @@ def write_data():
             response = write_shard_data(server, shard, data)
             if response is False:
                 return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500 
+
 
     sql.UseDB(dbname=shard)
     sql.Insert(table_name='studT', rows=data)
@@ -169,6 +173,11 @@ def update_data():
     if shard not in logfile:
         logfile[shard] = []
     logfile[shard].append(["UPDATE", data, len(logfile[shard]) + 1])
+
+    file = open(WAL, "a")
+    file.write(f"UPDATE {shard}, {Stud_id}, {data['Stud_name']}, {data['Stud_marks']}\n")
+    file.close()
+
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
         servers = get_shard_servers(shard)
@@ -208,6 +217,11 @@ def delete_data():
     if shard not in logfile:
         logfile[shard] = []
     logfile[shard].append(["DELETE", {"Stud_id": Stud_id}, len(logfile[shard]) + 1])
+
+    file = open(WAL, "a")
+    file.write(f"DELETE {shard}, {Stud_id}\n")
+    file.close()
+
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
         servers = get_shard_servers(shard)
@@ -235,6 +249,20 @@ def get_log_count():
     payload = request.get_json()
     shard = payload.get('shard')
     return jsonify({"count": shard_to_logcount[shard], "status": "success"}), 200
+
+@app.route('/get_log', methods=['GET'])
+def get_log():
+    payload = request.get_json()
+    shard = payload.get('shard')
+    return jsonify({"log": logfile[shard], "status": "success"}), 200
+
+@app.route('/set_primary', methods=['POST'])
+def set_primary():
+    payload = request.get_json()
+    shards = payload.get('shards')
+    global primary_shards
+    primary_shards = shards
+    return jsonify({"message": f"Primary shards set to {', '.join(shards)}", "status": "success"}), 200
 
 @app.route('/heartbeat', methods=['GET'])
 def heartbeat():
