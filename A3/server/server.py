@@ -9,7 +9,7 @@ sql = SQLHandler()
 primary_shards = [] 
 logfile = {}
 shard_to_logcount = {}
-WAL = "WALOG.txt"
+WAL = "./LOGS/WALOG.txt"
 
 def is_running_in_docker():
     return os.environ.get('DOCKER_CONTAINER') is not None
@@ -97,6 +97,7 @@ def copy_data():
 
 @app.route('/read', methods=['POST'])
 def read_data():
+    print("Read route")
     payload = request.get_json()
     shard = payload.get('shard')
     Stud_id = payload.get('Stud_id')
@@ -115,30 +116,34 @@ def read_data():
 
     return jsonify(response_data), 200
 
-
 @app.route('/write', methods=['POST'])
 def write_data():
+    print("hi0")
     payload = request.get_json()
-    shard = payload.get('shard')
-    data = payload.get('data')
-
+    shard = payload.get('shard') #"sh1"
+    data = payload.get('data')  #[{"Stud_id": 2255, "Stud_name": "GHI", "Stud_marks": 27}]
+    print("hi0.5")
     if not shard or not data:
         return jsonify({"message": "Invalid payload", "status": "error"}), 400
-
+    print("hi0.6")
     if not sql.hasDB(dbname=shard):
         return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
     
+    print("hi1")
     # this server is a primary server if shard is in primary_shards
     if shard not in logfile:
         logfile[shard] = []
     logfile[shard].append(["WRITE", data, len(logfile[shard]) + 1])
 
+    print("hi2")
     file = open(WAL, "a")
-    file.write(f"WRITE {shard}, {data['Stud_id']}, {data['Stud_name']}, {data['Stud_marks']}\n")
+    for entry in data:
+        file.write(f"WRITE {shard}, {entry['Stud_id']}, {entry['Stud_name']}, {entry['Stud_marks']}\n")
+    shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + len(data)
     file.close()
-
-    shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
+    
     if shard in primary_shards:
+        print("hello in loop")
         servers = get_shard_servers(shard)
         if servers is None:
             return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
@@ -149,6 +154,7 @@ def write_data():
             if response is False:
                 return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500 
 
+        print("hi4")
 
     sql.UseDB(dbname=shard)
     sql.Insert(table_name='studT', rows=data)

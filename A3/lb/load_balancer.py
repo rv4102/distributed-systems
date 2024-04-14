@@ -28,7 +28,32 @@ shard_to_primary_server = {}
 shard_hash_map:Dict[str, ConsistentHashMap] = defaultdict(ConsistentHashMap)
 shard_write_lock = defaultdict(lambda: asyncio.Lock())
 metadata_lock = asyncio.Lock()
-
+# [
+#     {
+#       "Primary": "Server0",
+#       "Shard_id": "sh1",
+#       "Shard_size": 4096,
+#       "Stud_id_low": 0
+#     },
+#     {
+#       "Primary": "Server0",
+#       "Shard_id": "sh2",
+#       "Shard_size": 4096,
+#       "Stud_id_low": 4096
+#     },
+#     {
+#       "Primary": "Server1",
+#       "Shard_id": "sh3",
+#       "Shard_size": 4096,
+#       "Stud_id_low": 8192
+#     },
+#     {
+#       "Primary": "Server4",
+#       "Shard_id": "sh5",
+#       "Shard_size": 4096,
+#       "Stud_id_low": 12288
+#     }
+#   ]
 def update_ShardT():
     global shard_to_primary_server
     global shardT
@@ -503,20 +528,29 @@ async def write():
     for shard, data in shards_to_data.items():
         async with shard_write_lock[shard]:
             async with aiohttp.ClientSession() as session:
-                tasks = []
-                for server in shard_to_servers[shard]:
-                    app.logger.info(f"Writing to {server} for shard {shard}")
-                    payload = {"shard": shard, "curr_idx": 1, "data": data}
-                    task = asyncio.create_task(session.post(f'http://{server}:5000/write', json=payload))
-                    tasks.append(task)
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for result in results:
-                    if isinstance(result, Exception):
-                        app.logger.error(f"Error while writing to {server} for shard {shard}, got exception {result}")
+                primary_server = shard_to_primary_server[shard]
+                payload = {"shard": shard, "data": data}
+                print(f"Payload for server {primary_server} is :\n{payload}")
+                async with session.post(f'http://{primary_server}:5000/write', json=payload) as resp:
+                    if resp.status != 200:
+                        app.logger.error(f"Error while writing to {primary_server} for shard {shard}")
                         return jsonify({"message": "Error while writing", "status": "failure"}), 500
-                    if result.status != 200:
-                        app.logger.error(f"Error while writing to {server} for shard {shard}, got status {result.status}")
-                        return jsonify({"message": "Error while writing", "status": "failure"}), 500
+                
+
+                # tasks = []
+                # for server in shard_to_servers[shard]:
+                #     app.logger.info(f"Writing to {server} for shard {shard}")
+                #     payload = {"shard": shard, "data": data}
+                #     task = asyncio.create_task(session.post(f'http://{server}:5000/write', json=payload))
+                #     tasks.append(task)
+                # results = await asyncio.gather(*tasks, return_exceptions=True)
+                # for result in results:
+                #     if isinstance(result, Exception):
+                #         app.logger.error(f"Error while writing to {server} for shard {shard}, got exception {result}")
+                #         return jsonify({"message": "Error while writing", "status": "failure"}), 500
+                #     if result.status != 200:
+                #         app.logger.error(f"Error while writing to {server} for shard {shard}, got status {result.status}")
+                #         return jsonify({"message": "Error while writing", "status": "failure"}), 500
     await set_data()     
     return jsonify({"message": f"{len(data)} Data entries added", "status": "success"}), 200
 

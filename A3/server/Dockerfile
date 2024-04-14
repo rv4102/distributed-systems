@@ -13,9 +13,19 @@ RUN apt-get update && \
 ENV PATH="/opt/venv/bin:$PATH"
 
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r requirements.txt 
 
 RUN chmod +x /app/custom-entry.sh
+
+RUN adduser --disabled-password --gecos '' newuser \
+    && adduser newuser sudo \
+    && echo '%sudo ALL=(ALL:ALL) ALL' >> /etc/sudoers
+
+RUN mkdir -p /app/LOGS
+
+RUN chown newuser /app/LOGS
+
+USER newuser
 
 ENV MYSQL_ROOT_PASSWORD="abc"
 
