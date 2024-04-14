@@ -29,6 +29,12 @@ shard_hash_map:Dict[str, ConsistentHashMap] = defaultdict(ConsistentHashMap)
 shard_write_lock = defaultdict(lambda: asyncio.Lock())
 metadata_lock = asyncio.Lock()
 
+def update_ShardT():
+    global shard_to_primary_server
+    global shardT
+    for dict in shardT:
+        dict['Primary'] = shard_to_primary_server[dict['Shard_id']]
+
 async def get_data():
     async with aiohttp.ClientSession() as session:
         async with session.post('http://metadata:5000/get_server_to_id') as resp:
@@ -196,7 +202,7 @@ async def spawn_server(serverName=None, shardList=[], schema={"columns":["Stud_i
         except Exception as e:
             app.logger.error(f"Error while spawning {containerName}, got exception {e}")
             return False, ""
-        set_data()
+        await set_data()
         return True, serverName
     
 # checks periodic heartbeat of server
@@ -230,10 +236,10 @@ async def periodic_heatbeat_check(interval=2):
                     shard_hash_map[shard].removeServer(server_to_id[serverName])
                 deadServerList.append(serverName)
                 del servers_to_shard[serverName]
-        set_data()
+        await set_data()
         for serverName in deadServerList:
             await spawn_server(serverName, shardList)
-        set_data()
+        await set_data()
         await asyncio.sleep(interval)
 
 # assuming 3 replicas when shard placement is not mentioned
@@ -282,7 +288,7 @@ async def init():
         if result[0]:
             spawned_servers.append(result[1])
     
-    set_data()
+    await set_data()
     for shard, serverlist in shard_to_servers.items():
         # get a random primary server from serverlist
         primary_server = random.choice(serverlist)
@@ -294,12 +300,9 @@ async def init():
                     return jsonify({"message": "Error while setting primary", "status": "failure"}), 500
 
 
-    print(shardT)
-    print(shard_to_primary_server)
-    for dict in shardT:
-        dict['Primary'] = shard_to_primary_server[dict['Shard_id']]
+    update_ShardT()
     
-    set_data()
+    await set_data()
 
     if len(spawned_servers) == 0:
         return jsonify({"message": "No servers spawned", "status": "failure"}), 500
@@ -369,7 +372,8 @@ async def add_servers():
                 #     return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
                 # else:
 
-    set_data()
+    await set_data()
+    update_ShardT()
 
     if len(spawned_servers) == 0:
         return jsonify({"message": "No servers spawned", "status": "failure"}), 500
@@ -395,7 +399,7 @@ async def remove_container(hostname):
                 payload = {'shard': shard}
                 async with client_session.get('http://shardmanager:5000/primary_elect', json=payload) as resp:
                     pass
-        set_data()
+        await set_data()
         os.system(f"docker stop {hostname} && docker rm {hostname}")
     except Exception as e:
         app.logger.error(f"<ERROR> {e} occurred while removing hostname={hostname}")
@@ -432,7 +436,8 @@ async def remove_servers():
         return jsonify(message=f"<ERROR> {e} occurred while removing", status="failure"), 400
     
     remove_keys.extend(servers)
-    set_data()
+    await set_data()
+    update_ShardT()
     return jsonify({"message": {"N": len(servers_to_shard), "servers": remove_keys}, "status": "success"}), 200
 
 # from here not completely done
@@ -494,7 +499,7 @@ async def write():
         shard = shardT[shardIndex-1]["Shard_id"]
         shards_to_data[shard] = shards_to_data.get(shard, [])
         shards_to_data[shard].append(record)
-    set_data()
+    await set_data()
     for shard, data in shards_to_data.items():
         async with shard_write_lock[shard]:
             async with aiohttp.ClientSession() as session:
@@ -512,7 +517,7 @@ async def write():
                     if result.status != 200:
                         app.logger.error(f"Error while writing to {server} for shard {shard}, got status {result.status}")
                         return jsonify({"message": "Error while writing", "status": "failure"}), 500
-    set_data()     
+    await set_data()     
     return jsonify({"message": f"{len(data)} Data entries added", "status": "success"}), 200
 
 @app.route('/update', methods=['PUT'])
@@ -533,7 +538,7 @@ async def update():
     shardIndex -= 1
 
     shard = shardT[shardIndex]["Shard_id"]
-    set_data()
+    await set_data()
     async with shard_write_lock[shard]:
         async with aiohttp.ClientSession() as session:
             tasks = []
@@ -549,7 +554,7 @@ async def update():
                 if result.status != 200:
                     app.logger.error(f"Error while updating to {server} for shard {shard}, got status {result.status}")
                     return jsonify({"message": "Error while updating", "status": "failure"}), 500
-    set_data()
+    await set_data()
     return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", "status": "success"}), 200
 
 @app.route('/del', methods=['DELETE'])
@@ -563,7 +568,7 @@ async def delete():
     shardIndex -= 1
 
     shard = shardT[shardIndex]["Shard_id"]
-    set_data()
+    await set_data()
     async with shard_write_lock[shard]:
         async with aiohttp.ClientSession() as session:
             tasks = []
@@ -579,7 +584,7 @@ async def delete():
                 if result.status != 200:
                     app.logger.error(f"Error while deleting to {server} for shard {shard}, got status {result.status}")
                     return jsonify({"message": "Error while deleting", "status": "failure"}), 500
-    set_data()           
+    await set_data()           
     return jsonify({"message": f"Data entry with Stud_id: {stud_id} removed from all replicas", "status": "success"}), 200
 
 @app.route('/get_shard_servers', methods=['GET'])
@@ -628,13 +633,13 @@ async def primary_elect():
         # api returns as {"server_name": count}
         max_entries = -1
         primary_server = None
-        for server_name, log_count in entries.values():
+        for server_name, log_count in entries.items():
             if log_count > max_entries:
                 max_entries = log_count
                 primary_server = server_name
         shard_to_primary_server[shard] = primary_server
     # call api to set primary on elected server
-    set_data()
+    await set_data()
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard}
         async with session.post(f'http://{primary_server}:5000/set_primary', json=payload) as resp:

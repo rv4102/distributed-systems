@@ -282,7 +282,7 @@ async def primary_elect():
         # api returns as {"server_name": count}
         max_entries = -1
         primary_server = None
-        for server_name, log_count in entries.values():
+        for server_name, log_count in entries.items():
             if log_count > max_entries:
                 max_entries = log_count
                 primary_server = server_name
