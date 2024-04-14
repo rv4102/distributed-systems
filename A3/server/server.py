@@ -258,6 +258,7 @@ def get_log():
 
 @app.route('/set_primary', methods=['POST'])
 def set_primary():
+    print("hello")
     payload = request.get_json()
     shard = payload.get('shard')
     global primary_shards

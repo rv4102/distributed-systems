@@ -3,6 +3,7 @@ networks:
   net1:
     name: net1
     driver: bridge
+    
 services:
   lb:
     build: ./lb/
@@ -17,6 +18,7 @@ services:
       net1:
         aliases:
           - lb
+
   server:
     build: ./server/
     image: server
@@ -26,6 +28,7 @@ services:
       net1:
         aliases:
           - server
+
   metadata:
     build: ./metadata/
     image: metadata
@@ -33,6 +36,7 @@ services:
       net1:
         aliases:
           - metadata
+
   shardmanager:
     build: ./shardmanager/
     image: shardmanager
