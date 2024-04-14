@@ -259,10 +259,10 @@ def get_log():
 @app.route('/set_primary', methods=['POST'])
 def set_primary():
     payload = request.get_json()
-    shards = payload.get('shards')
+    shard = payload.get('shard')
     global primary_shards
-    primary_shards = shards
-    return jsonify({"message": f"Primary shards set to {', '.join(shards)}", "status": "success"}), 200
+    primary_shards.append(shard)
+    return jsonify({"message": f"Primary shards set to {', '.join(primary_shards)}", "status": "success"}), 200
 
 @app.route('/heartbeat', methods=['GET'])
 def heartbeat():
