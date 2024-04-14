@@ -461,6 +461,11 @@ async def get_shard_servers():
     servers = shard_to_servers.get(shard, [])
     return jsonify({"shard": shard, "servers": servers, "status": "success"}), 200
 
+# @app.route('/get_log_count', methods=['GET'])
+# def get_log_count():
+#     payload = request.get_json()
+#     shard = payload.get('shard')
+#     return jsonify({"count": shard_to_logcount[shard], "status": "success"}), 200
 # write an endpoint to select primary server for a shard
 @app.route('/primary_elect', methods=['GET'])
 async def primary_elect():
@@ -485,21 +490,45 @@ async def primary_elect():
         for result in results:
             if isinstance(result, Exception):
                 app.logger.error(f"Error while fetching entries from server, got exception {result}")
-                return jsonify({"message": "Error while fetching entries", "status": "failure"}), 500
+                continue
             if result.status != 200:
                 app.logger.error(f"Error while fetching entries from server, got status {result.status}")
-                return jsonify({"message": "Error while fetching entries", "status": "failure"}), 500
+                continue
             entries.append(await result.json())
-        
+        # api returns as {"server_name": count}
         max_entries = -1
         primary_server = None
-        for idx, entry in enumerate(entries):
-            if entry > max_entries:
-                max_entries = entry
-                primary_server = candidates[idx]
+        for server_name, log_count in entries.values():
+            if log_count > max_entries:
+                max_entries = log_count
+                primary_server = server_name
+
+    # call api to set primary on elected server
+    async with aiohttp.ClientSession() as session:
+        payload = {"shard": shard}
+        async with session.post(f'http://{primary_server}:5000/set_primary', json=payload) as resp:
+            if resp.status == 200:
+                return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
+            else:
+                return jsonify({"message": "Error while setting primary", "status": "failure"}), 500
+
+    # return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
+
+                # return jsonify({"message": "Error while fetching entries", "status": "failure"}), 500
+            # if result.status != 200:
+            #     app.logger.error(f"Error while fetching entries from server, got status {result.status}")
+            #     return jsonify({"message": "Error while fetching entries", "status": "failure"}), 500
+            # entries.append(await result.json())
+        
+    #     max_entries = -1
+    #     primary_server = None
+    #     for idx, entry in enumerate(entries):
+    #         if entry > max_entries:
+    #             max_entries = entry
+    #             primary_server = candidates[idx]
 
 
-    return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
+    # return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
     
 
 @app.before_serving
