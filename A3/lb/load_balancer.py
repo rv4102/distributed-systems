@@ -356,7 +356,7 @@ async def add_servers():
         return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
     if n!=len(servers):
-        return jsonify*{"message": f"<Error> Number of new servers {n} is not equal to newly added instances {len(new_shards)}", "status": "failure"}, 400
+        return jsonify(message=f"<Error> Number of new servers {n} is not equal to newly added instances {len(new_shards)}", status="failure"), 400
     
     for server in servers:
         if server in server_to_id:
@@ -630,11 +630,6 @@ async def get_shard_servers():
     servers = shard_to_servers.get(shard, [])
     return jsonify({"shard": shard, "servers": servers, "status": "success"}), 200
 
-# @app.route('/get_log_count', methods=['GET'])
-# def get_log_count():
-#     payload = request.get_json()
-#     shard = payload.get('shard')
-#     return jsonify({"count": shard_to_logcount[shard], "status": "success"}), 200
 # write an endpoint to select primary server for a shard
 @app.route('/primary_elect', methods=['GET'])
 async def primary_elect():

@@ -9,6 +9,7 @@ sql = SQLHandler()
 primary_shards = [] 
 logfile = {}
 shard_to_logcount = {}
+load_balancer_image_name = "lb"
 WAL = "./LOGS/WALOG.txt"
 
 def is_running_in_docker():
@@ -20,7 +21,7 @@ server_name = os.environ['SERVER_NAME'] if is_running_in_docker() else 'server1'
 async def get_shard_servers(shard_id):
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard_id}
-        async with session.post(f'http://localhost:5000/get_shard_servers', json=payload) as resp:
+        async with session.post(f'http://{load_balancer_image_name}:5000/get_shard_servers', json=payload) as resp:
             if resp.status == 200:
                 return await resp.json()
             else:
@@ -117,7 +118,7 @@ def read_data():
     return jsonify(response_data), 200
 
 @app.route('/write', methods=['POST'])
-def write_data():
+async def write_data():
     print("hi0")
     payload = request.get_json()
     shard = payload.get('shard') #"sh1"
@@ -144,13 +145,13 @@ def write_data():
     
     if shard in primary_shards:
         print("hello in loop")
-        servers = get_shard_servers(shard)
+        servers = await get_shard_servers(shard)
         if servers is None:
             return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
         for server in servers:
             if server == server_name:
                 continue
-            response = write_shard_data(server, shard, data)
+            response = await write_shard_data(server, shard, data)
             if response is False:
                 return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500 
 
@@ -164,7 +165,7 @@ def write_data():
 
 
 @app.route('/update', methods=['PUT'])
-def update_data():
+async def update_data():
     payload = request.get_json()
     shard = payload.get('shard')
     Stud_id = payload.get('Stud_id')
@@ -186,13 +187,13 @@ def update_data():
 
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
-        servers = get_shard_servers(shard)
+        servers = await get_shard_servers(shard)
         if servers is None:
             return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
         for server in servers:
             if server == server_name:
                 continue
-            response = update_shard_data(server, shard, Stud_id, data)
+            response = await update_shard_data(server, shard, Stud_id, data)
             if response is False:
                 return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500
     
@@ -209,7 +210,7 @@ def update_data():
 
 
 @app.route('/del', methods=['DELETE'])
-def delete_data():
+async def delete_data():
     payload = request.get_json()
     shard = payload.get('shard')
     Stud_id = payload.get('Stud_id')
@@ -230,13 +231,13 @@ def delete_data():
 
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
-        servers = get_shard_servers(shard)
+        servers = await get_shard_servers(shard)
         if servers is None:
             return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
         for server in servers:
             if server == server_name:
                 continue
-            response = delete_shard_data(server, shard, Stud_id)
+            response = await delete_shard_data(server, shard, Stud_id)
             if response is False:
                 return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500
 

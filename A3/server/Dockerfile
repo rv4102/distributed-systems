@@ -4,6 +4,7 @@ COPY deploy.sh /always-initdb.d/
 COPY . /app
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1
 RUN apt-get update && \
     apt-get install -y python3 && \
     apt-get install -y python3-pip && \
