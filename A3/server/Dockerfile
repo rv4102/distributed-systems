@@ -1,27 +1,27 @@
 FROM mysql:8.0-debian
 
 COPY deploy.sh /always-initdb.d/
-COPY . /app
 WORKDIR /app
+COPY ./requirements.txt .
+COPY ./custom-entry.sh .
 
 ENV PYTHONUNBUFFERED=1
-RUN apt-get update && \
-    apt-get install -y python3 && \
-    apt-get install -y python3-pip && \
-    apt-get install -y python3-venv && \
-    python3 -m venv /opt/venv
+RUN apt-get update
+RUN apt-get install -y python3
+RUN  apt-get install -y python3-pip
 
-ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --break-system-packages --upgrade pip
+RUN pip install --break-system-packages -r requirements.txt 
 
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt 
+# this line is moved here so that changes in source .py file do not cause python packages to be reinstalled and cached version can be used
+COPY . .
+WORKDIR /app
 
 RUN chmod +x /app/custom-entry.sh
 
 RUN adduser --disabled-password --gecos '' newuser \
     && adduser newuser sudo \
     && echo '%sudo ALL=(ALL:ALL) ALL' >> /etc/sudoers
-
 RUN mkdir -p /app/LOGS
 RUN chown newuser /app/LOGS
 USER newuser
