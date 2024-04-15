@@ -23,9 +23,7 @@ RUN adduser --disabled-password --gecos '' newuser \
     && echo '%sudo ALL=(ALL:ALL) ALL' >> /etc/sudoers
 
 RUN mkdir -p /app/LOGS
-
 RUN chown newuser /app/LOGS
-
 USER newuser
 
 ENV MYSQL_ROOT_PASSWORD="abc"
