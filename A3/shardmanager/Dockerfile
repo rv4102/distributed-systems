@@ -14,4 +14,4 @@ WORKDIR /app
 
 EXPOSE 5000
 
-CMD [ "python", "load_balancer.py" ]
+CMD [ "python", "shard_manager.py" ]
