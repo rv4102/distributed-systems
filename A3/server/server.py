@@ -261,7 +261,7 @@ async def delete_data():
 def get_log_count():
     payload = request.get_json()
     shard = payload.get('shard')
-    return jsonify({server_name: shard_to_logcount[shard], "status": "success"}), 200
+    return jsonify({"server_name": server_name, "logcount": shard_to_logcount[shard], "status": "success"}), 200
 
 @app.route('/get_log', methods=['GET'])
 def get_log():

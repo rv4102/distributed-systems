@@ -605,8 +605,8 @@ async def get_shard_servers():
 @app.before_serving
 async def startup():
     app.logger.info("Starting the load balancer")
-    os.popen(f"docker run --platform=linux/amd64 --name metadata --network net1 --network-alias metadata -d metadata").read()
-    os.popen(f"docker run --platform=linux/amd64 --name shardmanager --network net1 --network-alias shardmanager -d shardmanager").read()
+    # os.popen(f"docker run --platform=linux/amd64 --name metadata --network net1 --network-alias metadata -d metadata").read()
+    # os.popen(f"docker run --platform=linux/amd64 --name shardmanager --network net1 --network-alias shardmanager -d shardmanager").read()
     global available_servers
     available_servers = [i for i in range(100000, 1000000)]
     random.shuffle(available_servers)

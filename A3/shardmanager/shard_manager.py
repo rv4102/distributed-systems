@@ -226,14 +226,10 @@ async def periodic_heatbeat_check(interval=2):
         server_to_id_temp=copy.deepcopy(server_to_id)
         deadServerList=[]
         tasks = [check_heartbeat(serverName) for serverName in server_to_id_temp.keys()]
-        print(tasks)
         results = await asyncio.gather(*tasks)
         results = zip(server_to_id_temp.keys(),results)
-        print(results)
-
         for serverName, isUp in results:
             if isUp == False:
-                print(f"Server {serverName} is down")
                 app.logger.error(f"Server {serverName} is down")
                 shardList = []  
                 for shard in servers_to_shard[serverName]:
@@ -241,21 +237,22 @@ async def periodic_heatbeat_check(interval=2):
                     shard_hash_map[shard].removeServer(server_to_id[serverName])
                 deadServerList.append(serverName)
                 del servers_to_shard[serverName]
-
-                if serverName in shard_to_primary_server.values():
-                    shard = [k for k, v in shard_to_primary_server.items() if v == serverName][0]
-                    shard_to_primary_server.pop(shard)
-                    async with aiohttp.ClientSession(trust_env=True) as client_session:
-                        payload = {'shard': shard}
-                        async with client_session.get(f'http://{SHARD_MANAGER_IMAGE_NAME}:5000/primary_elect', json=payload) as resp:
-                            if resp.status != 200:
-                                app.logger.error(f"Error while electing primary for shard {shard}")
-                                return False
-                    await set_data()
                             
         for serverName in deadServerList:
             print(f"Spawning {serverName}")
             await spawn_server(serverName, shardList)
+
+            if serverName in shard_to_primary_server.values():
+                print(f"Electing new primary for shard {shard}")
+                shard = [k for k, v in shard_to_primary_server.items() if v == serverName][0]
+                shard_to_primary_server.pop(shard)
+                async with aiohttp.ClientSession(trust_env=True) as client_session:
+                    payload = {'shard': shard}
+                    async with client_session.get(f'http://{SHARD_MANAGER_IMAGE_NAME}:5000/primary_elect', json=payload) as resp:
+                        if resp.status != 200:
+                            app.logger.error(f"Error while electing primary for shard {shard}")
+                            return False
+                await set_data()
     
         await asyncio.sleep(interval)
 
@@ -267,12 +264,10 @@ async def primary_elect():
     shard = payload.get('shard')
     if not shard:
         return jsonify({"message": "Invalid payload", "status": "failure"}), 400
-    print("here1")
     # fetch the server with most updated log entry
     candidates = shard_to_servers.get(shard, [])
     if not candidates:
         return jsonify({"message": "No replicas found for shard", "status": "failure"}), 400
-    print("here2")
     # call an endpoint on each server to get number of entries corresponding to shard
     async with aiohttp.ClientSession() as session:
         tasks = []
@@ -282,7 +277,6 @@ async def primary_elect():
             tasks.append(task)
         results = await asyncio.gather(*tasks, return_exceptions=True)
         entries = []
-        print("results await ho gaye")
         for result in results:
             if isinstance(result, Exception):
                 app.logger.error(f"Error while fetching entries from server, got exception {result}")
@@ -292,26 +286,23 @@ async def primary_elect():
                 continue
             entries.append(await result.json())
         # api returns as {"server_name": count}
-        print(entries)
         max_entries = -1
         primary_server = None
-        for server_name, log_count in entries.values():
-            if log_count > max_entries:
-                max_entries = log_count
+        for entry in entries:
+            server_name = entry.get('server_name')
+            logcount = entry.get('logcount')
+            if logcount > max_entries:
+                max_entries = logcount
                 primary_server = server_name
         global shard_to_primary_server
-        print(f"shard {shard} ka primary server is {primary_server}")
         shard_to_primary_server[shard] = primary_server
         
     await set_data()
 
-    print("here3")
     # call api to set primary on elected server
     async with aiohttp.ClientSession() as session:
-        print("sending payload")
         payload = {"shard": shard}
         async with session.post(f'http://{primary_server}:5000/set_primary', json=payload) as resp:
-            print("response aaya")
             if resp.status == 200:
                 return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
             else:

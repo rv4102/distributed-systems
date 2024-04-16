@@ -5,8 +5,6 @@ import os
 
 app = Flask(__name__)
 
-shard_to_log_count = {}
-
 server_to_id = {}
 id_to_server = {}
 
@@ -18,22 +16,6 @@ prefix_shard_sizes = []
 shardT = []
 
 shard_to_primary_server = {}
-
-@app.route('/get_log_count', methods=['GET'])
-def get_log_count():
-    payload = request.get_json()
-    shard = payload.get('shard')
-    return jsonify({"count": shard_to_log_count[shard], "status": "success"}), 200
-
-@app.route('/set_log_count', methods=['POST'])
-def set_log_count():
-    payload = request.get_json()
-    shard = payload.get('shard')
-    count = payload.get('count')
-    shard_to_log_count[shard] = count
-    return jsonify({"message": f"Log count for {shard} set to {count}", "status": "success"}), 200
-
-
 
 # s1 7 
 # s2 8 
