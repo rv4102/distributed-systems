@@ -8,7 +8,7 @@ services:
   lb:
     build: ./lb/
     image: lb
-    platform: linux/x86_64
+    platform: linux/amd64
     container_name: lb
     ports:
       - "5000:5000"
@@ -23,7 +23,7 @@ services:
   server:
     build: ./server/
     image: server
-    platform: linux/x86_64
+    platform: linux/amd64
     networks:
       net1:
         aliases:
@@ -32,8 +32,9 @@ services:
   metadata:
     build: ./metadata/
     image: metadata
-    platform: linux/x86_64
+    platform: linux/amd64
     container_name: metadata
+    attach: false # this is to disable logging
     networks:
       net1:
         aliases:
@@ -42,7 +43,7 @@ services:
   shardmanager:
     build: ./shardmanager/
     image: shardmanager
-    platform: linux/x86_64
+    platform: linux/amd64
     container_name: shardmanager
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
