@@ -14,6 +14,7 @@ from consistent_hashing import ConsistentHashMap
 app = Quart(__name__)
 logging.basicConfig(level=logging.DEBUG)
 PORT = 5000
+SLEEP_TIME = 60
 
 available_servers = []
 server_to_id = {}
@@ -141,7 +142,7 @@ async def set_data():
 # configs server for particular schema and shards
 async def config_server(serverName, schema, shards):
     app.logger.info(f"Configuring {serverName}")
-    await asyncio.sleep(90)
+    await asyncio.sleep(SLEEP_TIME)
     async with aiohttp.ClientSession() as session:
         payload = {"schema": schema, "shards": shards}
         async with session.post(f'http://{serverName}:5000/config', json=payload) as resp:
@@ -200,7 +201,7 @@ async def spawn_server(serverName=None, shardList=[], schema={"columns":["Stud_i
         serverName = f'server{serverId}'
 
     containerName = serverName
-    res = os.popen(f"docker run --name {containerName} --network net1 --network-alias {containerName} -e SERVER_NAME={containerName} -d server").read()
+    res = os.popen(f"docker run --platform=linux/amd64 --name {containerName} --network net1 --network-alias {containerName} -e SERVER_NAME={containerName} -d server").read()
     if res == "":
         app.logger.error(f"Error while spawning {containerName}")
         return False, ""
@@ -229,43 +230,44 @@ async def spawn_server(serverName=None, shardList=[], schema={"columns":["Stud_i
             return False, ""
         await set_data()
         return True, serverName
-    
-# checks periodic heartbeat of server
-async def check_heartbeat(serverName):
-    try:
-        app.logger.info(f"Checking heartbeat of {serverName}")
-        async with aiohttp.ClientSession(trust_env=True) as client_session:
-            async with client_session.get(f'http://{serverName}:5000/heartbeat') as resp:
-                if resp.status == 200:
-                    return True
-                else:
-                    return False
-    except Exception as e:
-        app.logger.error(f"Error while checking heartbeat of {serverName}: {e}")
-        return False
 
-async def periodic_heatbeat_check(interval=2):
-    app.logger.info("Starting periodic heartbeat check")
-    while True:
-        server_to_id_temp=copy.deepcopy(server_to_id)
-        deadServerList=[]
-        tasks = [check_heartbeat(serverName) for serverName in server_to_id_temp.keys()]
-        results = await asyncio.gather(*tasks)
-        results = zip(server_to_id_temp.keys(),results)
-        for serverName,isDown in results:
-            if isDown == False:
-                app.logger.error(f"Server {serverName} is down")
-                shardList = []  
-                for shard in servers_to_shard[serverName]:
-                    shardList.append(shard)
-                    shard_hash_map[shard].removeServer(server_to_id[serverName])
-                deadServerList.append(serverName)
-                del servers_to_shard[serverName]
+async def remove_container(hostname):
+    global server_to_id
+    global id_to_server
+    global servers_to_shard
+    global available_servers
+    global shard_hash_map
+    global shard_to_primary_server
+
+    try:
+        serverId = server_to_id[hostname]
+        shardList = servers_to_shard[hostname]
+        for shard in shardList:
+            shard_hash_map[shard].removeServer(serverId)
+        del servers_to_shard[hostname]
+        available_servers.append(serverId)
+        server_to_id.pop(hostname)
+        id_to_server.pop(serverId)
+
+        if hostname in shard_to_primary_server.values():
+            shard = [k for k, v in shard_to_primary_server.items() if v == hostname][0]
+            shard_to_primary_server.pop(shard)
+            async with aiohttp.ClientSession(trust_env=True) as client_session:
+                payload = {'shard': shard}
+                await set_data()
+                async with client_session.get('http://shardmanager:5000/primary_elect', json=payload) as resp:
+                    if resp.status != 200:
+                        app.logger.error(f"Error while electing primary for shard {shard}")
+                        return jsonify({"message": "Error while electing primary", "status": "failure"}), 500
+        
         await set_data()
-        for serverName in deadServerList:
-            await spawn_server(serverName, shardList)
-        await set_data()
-        await asyncio.sleep(interval)
+        os.system(f"docker stop {hostname} && docker rm {hostname}")
+
+    except Exception as e:
+        app.logger.error(f"<ERROR> {e} occurred while removing hostname={hostname}")
+        raise e 
+    app.logger.info(f"Server with hostname={hostname} removed successfully")
+
 
 # assuming 3 replicas when shard placement is not mentioned
 @app.route('/init', methods=['POST'])
@@ -344,6 +346,7 @@ def status():
     N = len(servers)
     return jsonify({"N": N, "shards": shards, "servers": servers, "status": "success"}), 200
 
+
 # if new_shards are empty, then we are just increasing replication factor
 @app.route('/add', methods=['POST'])
 async def add_servers():
@@ -404,32 +407,6 @@ async def add_servers():
         return jsonify({"message": "No servers spawned", "status": "failure"}), 500
     
     return jsonify({"message": f"Add {', '.join(spawned_servers)} servers", "status": "success"}), 200
-
-
-async def remove_container(hostname):
-    try:
-        serverId = server_to_id[hostname]
-        shardList = servers_to_shard[hostname]
-        for shard in shardList:
-            shard_hash_map[shard].removeServer(serverId)
-        del servers_to_shard[hostname]
-        available_servers.append(serverId)
-        server_to_id.pop(hostname)
-        id_to_server.pop(serverId)
-
-        if hostname in shard_to_primary_server.values():
-            shard = [k for k, v in shard_to_primary_server.items() if v == hostname][0]
-            shard_to_primary_server.pop(shard)
-            async with aiohttp.ClientSession(trust_env=True) as client_session:
-                payload = {'shard': shard}
-                async with client_session.get('http://shardmanager:5000/primary_elect', json=payload) as resp:
-                    pass
-        await set_data()
-        os.system(f"docker stop {hostname} && docker rm {hostname}")
-    except Exception as e:
-        app.logger.error(f"<ERROR> {e} occurred while removing hostname={hostname}")
-        raise e 
-    app.logger.info(f"Server with hostname={hostname} removed successfully")
 
 
 @app.route('/rm', methods=['DELETE'])
@@ -508,6 +485,7 @@ async def read():
 
 @app.route('/write', methods=['POST'])
 async def write():
+    await get_data()
     payload = await request.get_json()
     data = payload.get("data")
     if not data:
@@ -524,13 +502,14 @@ async def write():
         shard = shardT[shardIndex-1]["Shard_id"]
         shards_to_data[shard] = shards_to_data.get(shard, [])
         shards_to_data[shard].append(record)
-    await set_data()
+    # await set_data()
     for shard, data in shards_to_data.items():
+        print(f"Writing to shard {shard} with data {data}")
         async with shard_write_lock[shard]:
             async with aiohttp.ClientSession() as session:
                 primary_server = shard_to_primary_server[shard]
+                print(f"Primary server for shard {shard} is {primary_server}")
                 payload = {"shard": shard, "data": data}
-                print(f"Payload for server {primary_server} is :\n{payload}")
                 async with session.post(f'http://{primary_server}:5000/write', json=payload) as resp:
                     if resp.status != 200:
                         app.logger.error(f"Error while writing to {primary_server} for shard {shard}")
@@ -551,11 +530,12 @@ async def write():
                 #     if result.status != 200:
                 #         app.logger.error(f"Error while writing to {server} for shard {shard}, got status {result.status}")
                 #         return jsonify({"message": "Error while writing", "status": "failure"}), 500
-    await set_data()     
+    # await set_data()     
     return jsonify({"message": f"{len(data)} Data entries added", "status": "success"}), 200
 
 @app.route('/update', methods=['PUT'])
 async def update():
+    await get_data()
     payload = await request.get_json()
     stud_id = payload.get("Stud_id")
     data = payload.get("data")
@@ -572,27 +552,36 @@ async def update():
     shardIndex -= 1
 
     shard = shardT[shardIndex]["Shard_id"]
-    await set_data()
+    # await set_data()
     async with shard_write_lock[shard]:
         async with aiohttp.ClientSession() as session:
-            tasks = []
-            for server in shard_to_servers[shard]:
-                payload = {"shard": shard, "Stud_id": stud_id, "data": data}
-                task = asyncio.create_task(session.put(f'http://{server}:5000/update', json=payload))
-                tasks.append(task)
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
-                if isinstance(result, Exception):
-                    app.logger.error(f"Error while updating to {server} for shard {shard}, got exception {result}")
+            primary_server = shard_to_primary_server[shard]
+            print(f"Primary server for shard {shard} is {primary_server} in update")
+            payload = {"shard": shard, "Stud_id": stud_id, "data": data}
+            async with session.put(f'http://{primary_server}:5000/update', json=payload) as resp:
+                if resp.status != 200:
+                    app.logger.error(f"Error while updating entry in {primary_server} for shard {shard}")
                     return jsonify({"message": "Error while updating", "status": "failure"}), 500
-                if result.status != 200:
-                    app.logger.error(f"Error while updating to {server} for shard {shard}, got status {result.status}")
-                    return jsonify({"message": "Error while updating", "status": "failure"}), 500
-    await set_data()
+
+            # tasks = []
+            # for server in shard_to_servers[shard]:
+            #     payload = {"shard": shard, "Stud_id": stud_id, "data": data}
+            #     task = asyncio.create_task(session.put(f'http://{server}:5000/update', json=payload))
+            #     tasks.append(task)
+            # results = await asyncio.gather(*tasks, return_exceptions=True)
+            # for result in results:
+            #     if isinstance(result, Exception):
+            #         app.logger.error(f"Error while updating to {server} for shard {shard}, got exception {result}")
+            #         return jsonify({"message": "Error while updating", "status": "failure"}), 500
+            #     if result.status != 200:
+            #         app.logger.error(f"Error while updating to {server} for shard {shard}, got status {result.status}")
+            #         return jsonify({"message": "Error while updating", "status": "failure"}), 500
+    # await set_data()
     return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", "status": "success"}), 200
 
 @app.route('/del', methods=['DELETE'])
 async def delete():
+    await get_data()
     payload = await request.get_json()
     stud_id = payload.get("Stud_id")
     if not stud_id:
@@ -602,95 +591,55 @@ async def delete():
     shardIndex -= 1
 
     shard = shardT[shardIndex]["Shard_id"]
-    await set_data()
+    # await set_data()
     async with shard_write_lock[shard]:
         async with aiohttp.ClientSession() as session:
-            tasks = []
-            for server in shard_to_servers[shard]:
-                payload = {"shard": shard, "Stud_id": stud_id}
-                task = asyncio.create_task(session.delete(f'http://{server}:5000/del', json=payload))
-                tasks.append(task)
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
-                if isinstance(result, Exception):
-                    app.logger.error(f"Error while deleting to {server} for shard {shard}, got exception {result}")
+            global shard_to_primary_server
+            primary_server = shard_to_primary_server[shard]
+            print(f"Primary server for shard {shard} is {primary_server} in delete")
+            payload = {"shard": shard, "Stud_id": stud_id}
+            async with session.delete(f'http://{primary_server}:5000/del', json=payload) as resp:
+                if resp.status != 200:
+                    app.logger.error(f"Error while deleting from {primary_server} for shard {shard}")
                     return jsonify({"message": "Error while deleting", "status": "failure"}), 500
-                if result.status != 200:
-                    app.logger.error(f"Error while deleting to {server} for shard {shard}, got status {result.status}")
-                    return jsonify({"message": "Error while deleting", "status": "failure"}), 500
-    await set_data()           
+            # tasks = []
+            # for server in shard_to_servers[shard]:
+            #     payload = {"shard": shard, "Stud_id": stud_id}
+            #     task = asyncio.create_task(session.delete(f'http://{server}:5000/del', json=payload))
+            #     tasks.append(task)
+            # results = await asyncio.gather(*tasks, return_exceptions=True)
+            # for result in results:
+            #     if isinstance(result, Exception):
+            #         app.logger.error(f"Error while deleting to {server} for shard {shard}, got exception {result}")
+            #         return jsonify({"message": "Error while deleting", "status": "failure"}), 500
+            #     if result.status != 200:
+            #         app.logger.error(f"Error while deleting to {server} for shard {shard}, got status {result.status}")
+            #         return jsonify({"message": "Error while deleting", "status": "failure"}), 500
+    # await set_data()           
     return jsonify({"message": f"Data entry with Stud_id: {stud_id} removed from all replicas", "status": "success"}), 200
 
 @app.route('/get_shard_servers', methods=['GET'])
 async def get_shard_servers():
-    shard = request.args.get('shard')
-    if not shard:
-        return jsonify({"message": "Invalid payload", "status": "failure"}), 400
-
-    servers = shard_to_servers.get(shard, [])
-    return jsonify({"shard": shard, "servers": servers, "status": "success"}), 200
-
-# write an endpoint to select primary server for a shard
-@app.route('/primary_elect', methods=['GET'])
-async def primary_elect():
-    shard = request.args.get('shard')
+    await get_data()
+    payload = await request.get_json()
+    shard = payload.get('shard')
     if not shard:
         return jsonify({"message": "Invalid payload", "status": "failure"}), 400
     
-    # fetch the server with most updated log entry
-    candidates = shard_to_servers.get(shard, [])
-    if not candidates:
-        return jsonify({"message": "No replicas found for shard", "status": "failure"}), 400
-
-    # call an endpoint on each server to get number of entries corresponding to shard
-    async with aiohttp.ClientSession() as session:
-        tasks = []
-        for server in candidates:
-            json = {"shard": shard}
-            task = asyncio.create_task(session.get(f'http://{server}:5000/get_log_count', json=json))
-            tasks.append(task)
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        entries = []
-        for result in results:
-            if isinstance(result, Exception):
-                app.logger.error(f"Error while fetching entries from server, got exception {result}")
-                continue
-            if result.status != 200:
-                app.logger.error(f"Error while fetching entries from server, got status {result.status}")
-                continue
-            entries.append(await result.json())
-        # api returns as {"server_name": count}
-        max_entries = -1
-        primary_server = None
-        for server_name, log_count in entries.items():
-            if log_count > max_entries:
-                max_entries = log_count
-                primary_server = server_name
-        shard_to_primary_server[shard] = primary_server
-    # call api to set primary on elected server
-    await set_data()
-    async with aiohttp.ClientSession() as session:
-        payload = {"shard": shard}
-        async with session.post(f'http://{primary_server}:5000/set_primary', json=payload) as resp:
-            if resp.status == 200:
-                return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
-            else:
-                return jsonify({"message": "Error while setting primary", "status": "failure"}), 500
-
+    global shard_to_servers
+    servers = shard_to_servers.get(shard, [])
+    print(servers)
+    return jsonify({"shard": shard, "servers": servers, "status": "success"}), 200
     
 
 @app.before_serving
 async def startup():
     app.logger.info("Starting the load balancer")
-    os.popen(f"docker run --name metadata --network net1 --network-alias metadata -d metadata").read()
-    os.popen(f"docker run --name shardmanager --network net1 --network-alias shardmanager -d shardmanager").read()
+    os.popen(f"docker run --platform=linux/amd64 --name metadata --network net1 --network-alias metadata -d metadata").read()
+    os.popen(f"docker run --platform=linux/amd64 --name shardmanager --network net1 --network-alias shardmanager -d shardmanager").read()
     global available_servers
     available_servers = [i for i in range(100000, 1000000)]
     random.shuffle(available_servers)
-    # loop = asyncio.get_event_loop() if resp.status == 200:
-                            #     return True
-                            # else:
-                            #     return False
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT, debug=False)

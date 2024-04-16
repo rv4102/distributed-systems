@@ -11,19 +11,16 @@ logfile = {}
 shard_to_logcount = {}
 load_balancer_image_name = "lb"
 WAL = "./LOGS/WALOG.txt"
-
-def is_running_in_docker():
-    return os.environ.get('DOCKER_CONTAINER') is not None
-
-server_name = os.environ['SERVER_NAME'] if is_running_in_docker() else 'server1'
+server_name = os.environ['SERVER_NAME']
 
 
 async def get_shard_servers(shard_id):
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard_id}
-        async with session.post(f'http://{load_balancer_image_name}:5000/get_shard_servers', json=payload) as resp:
+        async with session.get(f'http://{load_balancer_image_name}:5000/get_shard_servers', json=payload) as resp:
             if resp.status == 200:
-                return await resp.json()
+                payload = await resp.json()
+                return payload.get('servers')
             else:
                 return None
 
@@ -119,19 +116,17 @@ def read_data():
 
 @app.route('/write', methods=['POST'])
 async def write_data():
-    print("hi0")
+    global server_name
+    print(server_name)
     payload = request.get_json()
     shard = payload.get('shard') #"sh1"
     data = payload.get('data')  #[{"Stud_id": 2255, "Stud_name": "GHI", "Stud_marks": 27}]
-    print("hi0.5")
     if not shard or not data:
         return jsonify({"message": "Invalid payload", "status": "error"}), 400
-    print("hi0.6")
+    
     if not sql.hasDB(dbname=shard):
         return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
     
-    print("hi1")
-    # this server is a primary server if shard is in primary_shards
     if shard not in logfile:
         logfile[shard] = []
     logfile[shard].append(["WRITE", data, len(logfile[shard]) + 1])
@@ -143,15 +138,21 @@ async def write_data():
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + len(data)
     file.close()
     
+    # this server is a primary server if shard is in primary_shards
     if shard in primary_shards:
+        print(f"{server_name} is a primary server for shard {shard}")
         print("hello in loop")
         servers = await get_shard_servers(shard)
+        print(servers)
+        print("hello")
         if servers is None:
             return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
         for server in servers:
             if server == server_name:
+                print("same server found")
                 continue
             response = await write_shard_data(server, shard, data)
+            print("hi there")
             if response is False:
                 return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500 
 
@@ -177,14 +178,16 @@ async def update_data():
     if not sql.hasDB(dbname=shard):
         return jsonify({"message": f"{server_name}:{shard} not found", "status": "error"}), 404
 
+    print("Logging ke pehele")
     if shard not in logfile:
         logfile[shard] = []
     logfile[shard].append(["UPDATE", data, len(logfile[shard]) + 1])
-
+    print("Logging ke baad")
     file = open(WAL, "a")
     file.write(f"UPDATE {shard}, {Stud_id}, {data['Stud_name']}, {data['Stud_marks']}\n")
     file.close()
 
+    print("Ab loop enter karenge")
     shard_to_logcount[shard] = shard_to_logcount.get(shard, 0) + 1
     if shard in primary_shards:
         servers = await get_shard_servers(shard)
@@ -192,20 +195,21 @@ async def update_data():
             return jsonify({"message": f"Error in getting servers for {shard}", "status": "error"}), 500
         for server in servers:
             if server == server_name:
+                print("Same server found in update")
                 continue
             response = await update_shard_data(server, shard, Stud_id, data)
             if response is False:
                 return jsonify({"message": f"Error in writing data to {server}", "status": "error"}), 500
-    
+    print("Loop khatam")
     sql.UseDB(dbname=shard)
     if not sql.Exists(table_name='studT', col="Stud_id", val=Stud_id):
         return jsonify({"message": f"Data entry for Stud_id:{Stud_id} not found", "status": "error"}), 404
     sql.Update(table_name='studT', col="Stud_id", val=Stud_id, data=data)
-
+    print("Data updated")
     response_data = {
         "message": f"Data entry for Stud_id:{Stud_id} updated", "status": "success"
     }
-
+    print("Ab return karenge update ko")
     return jsonify(response_data), 200
 
 
