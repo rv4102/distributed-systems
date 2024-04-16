@@ -15,6 +15,7 @@ app = Quart(__name__)
 logging.basicConfig(level=logging.DEBUG)
 PORT = 5000
 SLEEP_TIME = 60
+SHARD_MANAGER_IMAGE_NAME = "shardmanager"
 
 available_servers = []
 server_to_id = {}
@@ -240,7 +241,7 @@ async def periodic_heatbeat_check(interval=2):
                     shard_to_primary_server.pop(shard)
                     async with aiohttp.ClientSession(trust_env=True) as client_session:
                         payload = {'shard': shard}
-                        async with client_session.get('http://shardmanager:5000/primary_elect', json=payload) as resp:
+                        async with client_session.get(f'http://{SHARD_MANAGER_IMAGE_NAME}:5000/primary_elect', json=payload) as resp:
                             if resp.status != 200:
                                 app.logger.error(f"Error while electing primary for shard {shard}")
                                 return False

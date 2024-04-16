@@ -6,10 +6,12 @@ import os
 
 app = Flask(__name__)
 sql = SQLHandler()
+
 primary_shards = [] 
 logfile = {}
 shard_to_logcount = {}
-load_balancer_image_name = "lb"
+
+LOAD_BALANCER_IMAGE_NAME = "lb"
 WAL = "./LOGS/WALOG.txt"
 server_name = os.environ['SERVER_NAME']
 
@@ -17,7 +19,7 @@ server_name = os.environ['SERVER_NAME']
 async def get_shard_servers(shard_id):
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard_id}
-        async with session.get(f'http://{load_balancer_image_name}:5000/get_shard_servers', json=payload) as resp:
+        async with session.get(f'http://{LOAD_BALANCER_IMAGE_NAME}:5000/get_shard_servers', json=payload) as resp:
             if resp.status == 200:
                 payload = await resp.json()
                 return payload.get('servers')
