@@ -15,6 +15,7 @@ app = Quart(__name__)
 logging.basicConfig(level=logging.DEBUG)
 PORT = 5000
 SLEEP_TIME = 60
+METADATA_IMAGE_NAME = "metadata"
 
 available_servers = []
 server_to_id = {}
@@ -29,32 +30,7 @@ shard_to_primary_server = {}
 shard_hash_map:Dict[str, ConsistentHashMap] = defaultdict(ConsistentHashMap)
 shard_write_lock = defaultdict(lambda: asyncio.Lock())
 metadata_lock = asyncio.Lock()
-# [
-#     {
-#       "Primary": "Server0",
-#       "Shard_id": "sh1",
-#       "Shard_size": 4096,
-#       "Stud_id_low": 0
-#     },
-#     {
-#       "Primary": "Server0",
-#       "Shard_id": "sh2",
-#       "Shard_size": 4096,
-#       "Stud_id_low": 4096
-#     },
-#     {
-#       "Primary": "Server1",
-#       "Shard_id": "sh3",
-#       "Shard_size": 4096,
-#       "Stud_id_low": 8192
-#     },
-#     {
-#       "Primary": "Server4",
-#       "Shard_id": "sh5",
-#       "Shard_size": 4096,
-#       "Stud_id_low": 12288
-#     }
-#   ]
+
 def update_ShardT():
     global shard_to_primary_server
     global shardT
@@ -63,42 +39,42 @@ def update_ShardT():
 
 async def get_data():
     async with aiohttp.ClientSession() as session:
-        async with session.post('http://metadata:5000/get_server_to_id') as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_server_to_id') as resp:
             if resp.status == 200:
                 result = await resp.json()
                 global server_to_id
                 server_to_id = result.get('server_to_id')
-        async with session.post('http://metadata:5000/get_id_to_server') as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_id_to_server') as resp:
             if resp.status == 200:
                 result = await resp.json()
                 global id_to_server
                 id_to_server = result.get('id_to_server')
-        async with session.post('http://metadata:5000/get_shard_to_servers') as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_shard_to_servers') as resp:
             if resp.status == 200:
                 result = await resp.json()
                 global shard_to_servers
                 shard_to_servers = result.get('shard_to_servers')
-        async with session.post('http://metadata:5000/get_servers_to_shard') as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_servers_to_shard') as resp:
             if resp.status == 200:
                 result = await resp.json()
                 global servers_to_shard
                 servers_to_shard = result.get('servers_to_shard')
-        async with session.post('http://metadata:5000/get_available_servers') as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_available_servers') as resp:
             if resp.status == 200:
                 result = await resp.json()
                 global available_servers
                 available_servers = result.get('available_servers')
-        async with session.post('http://metadata:5000/get_prefix_shard_sizes') as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_prefix_shard_sizes') as resp:
             if resp.status == 200:
                 result = await resp.json()
                 global prefix_shard_sizes
                 prefix_shard_sizes = result.get('prefix_shard_sizes')
-        async with session.post('http://metadata:5000/get_shardT') as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_shardT') as resp:
             if resp.status == 200:
                 result = await resp.json()
                 global shardT
                 shardT = result.get('shardT')
-        async with session.post('http://metadata:5000/get_shard_to_primary_server') as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_shard_to_primary_server') as resp:
             if resp.status == 200:
                 result = await resp.json()
                 global shard_to_primary_server
@@ -107,35 +83,35 @@ async def get_data():
 async def set_data():
     async with aiohttp.ClientSession() as session:
         payload = {"server_to_id": server_to_id}
-        async with session.post('http://metadata:5000/set_server_to_id', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_server_to_id', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting server_to_id")
         payload = {"id_to_server": id_to_server}
-        async with session.post('http://metadata:5000/set_id_to_server', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_id_to_server', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting id_to_server")
         payload = {"shard_to_servers": shard_to_servers}
-        async with session.post('http://metadata:5000/set_shard_to_servers', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_shard_to_servers', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting shard_to_servers")
         payload = {"servers_to_shard": servers_to_shard}
-        async with session.post('http://metadata:5000/set_servers_to_shard', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_servers_to_shard', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting servers_to_shard")
         payload = {"available_servers": available_servers}
-        async with session.post('http://metadata:5000/set_available_servers', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_available_servers', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting available_servers")
         payload = {"prefix_shard_sizes": prefix_shard_sizes}
-        async with session.post('http://metadata:5000/set_prefix_shard_sizes', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_prefix_shard_sizes', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting prefix_shard_sizes")
         payload = {"shardT": shardT}
-        async with session.post('http://metadata:5000/set_shardT', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_shardT', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting shardT")
         payload = {"shard_to_primary_server": shard_to_primary_server}
-        async with session.post('http://metadata:5000/set_shard_to_primary_server', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_shard_to_primary_server', json=payload) as resp:
             if resp.status != 200:
                 app.logger.error(f"Error while setting shard_to_primary_server")
 
@@ -172,7 +148,7 @@ async def get_shard_data(shard):
 # writes the shard data into server
 async def write_shard_data(serverName, shard, data):
     async with aiohttp.ClientSession() as session:
-        payload = {"shard": shard, "curr_idx": 1, "data": data}
+        payload = {"shard": shard, "data": data}
         async with session.post(f'http://{serverName}:5000/write', json=payload) as resp:
             if resp.status == 200:
                 return True
@@ -328,7 +304,6 @@ async def init():
 
 
     update_ShardT()
-    
     await set_data()
 
     if len(spawned_servers) == 0:
@@ -400,8 +375,8 @@ async def add_servers():
                 #     return jsonify({"shard": shard, "primary_server": primary_server, "status": "success"}), 200
                 # else:
 
-    await set_data()
     update_ShardT()
+    await set_data()
 
     if len(spawned_servers) == 0:
         return jsonify({"message": "No servers spawned", "status": "failure"}), 500
@@ -438,8 +413,8 @@ async def remove_servers():
         return jsonify(message=f"<ERROR> {e} occurred while removing", status="failure"), 400
     
     remove_keys.extend(servers)
-    await set_data()
     update_ShardT()
+    await set_data()
     return jsonify({"message": {"N": len(servers_to_shard), "servers": remove_keys}, "status": "success"}), 200
 
 # from here not completely done
@@ -502,7 +477,7 @@ async def write():
         shard = shardT[shardIndex-1]["Shard_id"]
         shards_to_data[shard] = shards_to_data.get(shard, [])
         shards_to_data[shard].append(record)
-    # await set_data()
+
     for shard, data in shards_to_data.items():
         print(f"Writing to shard {shard} with data {data}")
         async with shard_write_lock[shard]:
@@ -530,7 +505,6 @@ async def write():
                 #     if result.status != 200:
                 #         app.logger.error(f"Error while writing to {server} for shard {shard}, got status {result.status}")
                 #         return jsonify({"message": "Error while writing", "status": "failure"}), 500
-    # await set_data()     
     return jsonify({"message": f"{len(data)} Data entries added", "status": "success"}), 200
 
 @app.route('/update', methods=['PUT'])
@@ -552,7 +526,6 @@ async def update():
     shardIndex -= 1
 
     shard = shardT[shardIndex]["Shard_id"]
-    # await set_data()
     async with shard_write_lock[shard]:
         async with aiohttp.ClientSession() as session:
             primary_server = shard_to_primary_server[shard]
@@ -576,7 +549,6 @@ async def update():
             #     if result.status != 200:
             #         app.logger.error(f"Error while updating to {server} for shard {shard}, got status {result.status}")
             #         return jsonify({"message": "Error while updating", "status": "failure"}), 500
-    # await set_data()
     return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", "status": "success"}), 200
 
 @app.route('/del', methods=['DELETE'])
@@ -591,7 +563,6 @@ async def delete():
     shardIndex -= 1
 
     shard = shardT[shardIndex]["Shard_id"]
-    # await set_data()
     async with shard_write_lock[shard]:
         async with aiohttp.ClientSession() as session:
             global shard_to_primary_server
@@ -615,7 +586,6 @@ async def delete():
             #     if result.status != 200:
             #         app.logger.error(f"Error while deleting to {server} for shard {shard}, got status {result.status}")
             #         return jsonify({"message": "Error while deleting", "status": "failure"}), 500
-    # await set_data()           
     return jsonify({"message": f"Data entry with Stud_id: {stud_id} removed from all replicas", "status": "success"}), 200
 
 @app.route('/get_shard_servers', methods=['GET'])

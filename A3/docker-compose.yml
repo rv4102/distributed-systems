@@ -24,8 +24,6 @@ services:
     build: ./server/
     image: server
     platform: linux/x86_64
-    ports:
-      - "5000:5000"
     networks:
       net1:
         aliases:
@@ -46,8 +44,6 @@ services:
     image: shardmanager
     platform: linux/x86_64
     container_name: shardmanager
-    ports:
-      - "5000:5000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true
