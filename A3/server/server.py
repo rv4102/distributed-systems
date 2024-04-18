@@ -11,7 +11,7 @@ primary_shards = []
 logfile = {}
 shard_to_logcount = {}
 
-LOAD_BALANCER_IMAGE_NAME = "lb"
+METADATA_IMAGE_NAME = "metadata"
 WAL = "./LOGS/WALOG.txt"
 server_name = os.environ['SERVER_NAME']
 
@@ -19,7 +19,7 @@ server_name = os.environ['SERVER_NAME']
 async def get_shard_servers(shard_id):
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard_id}
-        async with session.get(f'http://{LOAD_BALANCER_IMAGE_NAME}:5000/get_shard_servers', json=payload) as resp:
+        async with session.get(f'http://{METADATA_IMAGE_NAME}:5000/get_shard_servers', json=payload) as resp:
             if resp.status == 200:
                 payload = await resp.json()
                 return payload.get('servers')
@@ -261,7 +261,9 @@ async def delete_data():
 def get_log_count():
     payload = request.get_json()
     shard = payload.get('shard')
-    return jsonify({"server_name": server_name, "logcount": shard_to_logcount[shard], "status": "success"}), 200
+
+    logcount = shard_to_logcount.get(shard, 0)
+    return jsonify({"server_name": server_name, "count": logcount, "status": "success"}), 200
 
 @app.route('/get_log', methods=['GET'])
 def get_log():
