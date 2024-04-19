@@ -263,7 +263,7 @@ def get_log_count():
     shard = payload.get('shard')
 
     logcount = shard_to_logcount.get(shard, 0)
-    return jsonify({"server_name": server_name, "count": logcount, "status": "success"}), 200
+    return jsonify({"server_name": server_name, "logcount": logcount, "status": "success"}), 200
 
 @app.route('/get_log', methods=['GET'])
 def get_log():

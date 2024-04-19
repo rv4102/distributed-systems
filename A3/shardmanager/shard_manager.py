@@ -101,7 +101,7 @@ async def spawn_server(serverName=None, shardList=[], schema={"columns":["Stud_i
             # async with metadata_lock:
             for shard in shardList:
                 # shard_hash_map[shard].addServer(serverId)
-                result = await add_server_chmap(shard, serverId)
+                result = await add_server_to_chmap(shard, serverId)
                 if not result:
                     app.logger.error(f"Error while adding server to shard for {serverName}")
                     return False, ""
@@ -185,7 +185,7 @@ async def periodic_heatbeat_check(interval=2):
                     server_id = server_to_id[serverName]
 
                     # shard_hash_map[shard].removeServer(server_id)
-                    result = await remove_server_chmap(shard, server_id)
+                    result = await delete_server_from_chmap(shard, server_id)
                     if not result:
                         app.logger.error(f"Error while removing server from shard for {serverName}")
                         return False
@@ -281,14 +281,13 @@ async def primary_elect():
             else:
                 return jsonify({"message": "Error while setting primary", "status": "failure"}), 500  
 
+
 @app.before_serving
 async def startup():
     app.logger.info("Starting the Shard manager")
-    # available_servers = [i for i in range(100000, 1000000)]
-    # random.shuffle(available_servers)
-
     loop = asyncio.get_event_loop()
     loop.create_task(periodic_heatbeat_check())
+
 
 @app.after_serving
 async def cleanup():

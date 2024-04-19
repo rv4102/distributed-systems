@@ -165,19 +165,19 @@ async def get_shard_servers(shard):
                 return None
 
 ########################## Set / Delete Functions ##########################
-async def add_server_chmap(shard, server_id):
+async def add_server_to_chmap(shard, server_id):
     payload = {"server_id": server_id, "shard": shard}
     async with aiohttp.ClientSession() as session:
-        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/add_server_chmap', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/add_server_to_chmap', json=payload) as resp:
             if resp.status == 200:
                 return True
             else:
                 return False
 
-async def remove_server_chmap(shard, server_id):
+async def delete_server_from_chmap(shard, server_id):
     payload = {"server_id": server_id, "shard": shard}
     async with aiohttp.ClientSession() as session:
-        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/remove_server_chmap', json=payload) as resp:
+        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/delete_server_from_chmap', json=payload) as resp:
             if resp.status == 200:
                 return True
             else:
@@ -277,33 +277,6 @@ async def set_shard_to_primary_server(shard, server_name):
     payload = {"shard": shard, "server_name": server_name}
     async with aiohttp.ClientSession() as session:
         async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_shard_to_primary_server', json=payload) as resp:
-            if resp.status == 200:
-                return True
-            else:
-                return False
-
-async def set_shard_to_servers(shard_to_servers):
-    payload = {"shard_to_servers": shard_to_servers}
-    async with aiohttp.ClientSession() as session:
-        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_shard_to_servers', json=payload) as resp:
-            if resp.status == 200:
-                return True
-            else:
-                return False
-
-async def set_server_to_shards(server_to_shards):
-    payload = {"server_to_shards": server_to_shards}
-    async with aiohttp.ClientSession() as session:
-        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_server_to_shards', json=payload) as resp:
-            if resp.status == 200:
-                return True
-            else:
-                return False
-
-async def set_available_servers(available_servers):
-    payload = {"available_servers": available_servers}
-    async with aiohttp.ClientSession() as session:
-        async with session.post(f'http://{METADATA_IMAGE_NAME}:5000/set_available_servers', json=payload) as resp:
             if resp.status == 200:
                 return True
             else:

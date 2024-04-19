@@ -103,7 +103,7 @@ async def spawn_server(serverName=None, shardList=[], schema={"columns":["Stud_i
             # async with metadata_lock:
             for shard in shardList:
                 # shard_hash_map[shard].addServer(serverId)
-                result = await add_server_chmap(shard, serverId)
+                result = await add_server_to_chmap(shard, serverId)
                 if not result:
                     app.logger.error(f"Error while adding server to shard for {serverName}")
                     return False, ""
@@ -155,7 +155,7 @@ async def remove_container(hostname):
 
         for shard in shardList:
             # shard_hash_map[shard].removeServer(serverId)
-            result = await remove_server_chmap(shard, serverId)
+            result = await delete_server_from_chmap(shard, serverId)
             if not result:
                 app.logger.error(f"Error while removing server from shard hashmap for {hostname}")
                 return False
@@ -222,6 +222,8 @@ async def remove_container(hostname):
         app.logger.error(f"<ERROR> {e} occurred while removing hostname={hostname}")
         raise e 
     app.logger.info(f"Server with hostname={hostname} removed successfully")
+
+
 
 # assuming 3 replicas when shard placement is not mentioned
 @app.route('/init', methods=['POST'])
@@ -312,6 +314,7 @@ async def init():
         return jsonify({"message": f"Spawned only {spawned_servers} servers", "status": "success"}), 200
     
     return jsonify({"message": "Configured Database", "status": "success"}), 200
+
 
 @app.route('/status', methods=['GET'])
 async def status():
@@ -488,7 +491,7 @@ async def remove_servers():
     
     return jsonify({"message": {"N": server_count, "servers": remove_keys}, "status": "success"}), 200
 
-# from here not completely done
+
 @app.route('/read', methods=['POST'])
 async def read():
     payload = await request.get_json()
@@ -551,7 +554,6 @@ async def read():
 
 @app.route('/write', methods=['POST'])
 async def write():
-    
     payload = await request.get_json()
     data = payload.get("data")
     if not data:
@@ -596,9 +598,9 @@ async def write():
                                 
     return jsonify({"message": f"{len(data)} Data entries added", "status": "success"}), 200
 
+
 @app.route('/update', methods=['PUT'])
 async def update():
-    
     payload = await request.get_json()
     stud_id = payload.get("Stud_id")
     data = payload.get("data")
@@ -641,9 +643,9 @@ async def update():
 
     return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", "status": "success"}), 200
 
+
 @app.route('/del', methods=['DELETE'])
 async def delete():
-    
     payload = await request.get_json()
     stud_id = payload.get("Stud_id")
     if not stud_id:
@@ -679,13 +681,15 @@ async def delete():
 
     return jsonify({"message": f"Data entry with Stud_id: {stud_id} removed from all replicas", "status": "success"}), 200    
 
+
 @app.before_serving
 async def startup():
-    app.logger.info("Starting the load balancer")
-    
-    # result = await set_available_servers(available_servers)
-    # if not result:
-    #     app.logger.error(f"Error while setting available servers")
+    app.logger.info("Starting the Load Balancer")
+
+@app.after_serving
+async def cleanup():
+    app.logger.info("Stopping the Load Balancer")
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT, debug=False)

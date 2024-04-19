@@ -1,12 +1,9 @@
-from quart import Quart, jsonify, request
-from mysql.connector.errors import Error
 from consistent_hashing import ConsistentHashMap
+from quart import Quart, jsonify, request
 from collections import defaultdict
 from typing import Dict
 import asyncio
 import random
-# import aiohttp
-# import os
 
 app = Quart(__name__)
 
@@ -23,12 +20,6 @@ shardT = []
 shard_to_primary_server = {}
 shard_hash_map:Dict[str, ConsistentHashMap] = defaultdict(ConsistentHashMap)
 metadata_lock = asyncio.Lock()
-
-# s1 7 
-# s2 8 
-# s3 6 dead
-# s4 10 primary
-
 
 ########################## Get Functions ##########################
 
@@ -131,10 +122,35 @@ async def get_shard_servers():
     servers = shard_to_servers.get(shard, [])
     return jsonify({"shard": shard, "servers": servers, "status": "success"}), 200
 
+@app.route('/get_shard_to_servers', methods=['GET'])
+async def get_shard_to_servers():
+    global shard_to_servers
+    return jsonify({"shard_to_servers": shard_to_servers, "status": "success"}), 200
+
+@app.route('/get_servers', methods=['GET'])
+async def get_servers():
+    global server_to_id
+    servers = list(server_to_id.keys())
+    return jsonify({"servers": servers, "status": "success"}), 200
+
+@app.route('/get_server_to_shards_ds', methods=['GET'])
+async def get_server_to_shards_ds():
+    global server_to_shards
+    return jsonify({"server_to_shards": server_to_shards, "status": "success"}), 200
+
+@app.route('/get_available_servers_count', methods=['GET'])
+async def get_available_servers_count():
+    global server_to_id
+    global available_servers
+    count = len(server_to_id)
+    return jsonify({"available_servers_count": count, "status": "success"}), 200
+
+
+
 
 ########################## Set / Delete Functions ##########################
 
-@app.route('/add_server_chmap', methods=['POST'])
+@app.route('/add_server_to_chmap', methods=['POST'])
 async def add_server_to_chmap():
     payload = await request.get_json()
     server_id = payload.get('server_id')
@@ -144,8 +160,8 @@ async def add_server_to_chmap():
     shard_hash_map[shard].addServer(server_id)
     return jsonify({"message": "Server added to chmap", "status": "success"}), 200
 
-@app.route('/remove_server_chmap', methods=['POST'])
-async def remove_server_from_chmap():
+@app.route('/delete_server_from_chmap', methods=['POST'])
+async def delete_server_from_chmap():
     payload = await request.get_json()
     server_id = payload.get('server_id')
     shard = payload.get('shard')
@@ -162,7 +178,10 @@ async def set_server_to_shard():
 
     global shard_to_servers
     async with metadata_lock:
-        shard_to_servers.setdefault(shard, []).append(server_name)
+        if shard not in shard_to_servers:
+            shard_to_servers.setdefault(shard, [])
+        elif server_name not in shard_to_servers[shard]:
+            shard_to_servers[shard].append(server_name)
 
     return jsonify({"message": "Server registered to shard", "status": "success"}), 200
 
@@ -294,110 +313,22 @@ async def delete_from_shard_to_servers():
     return jsonify({"message": "Shard deleted from servers", "status": "success"}), 200
 
 
-
-
-
-
-
-
-
-
-@app.route('/get_shard_to_servers', methods=['GET'])
-async def get_shard_to_servers():
-    global shard_to_servers
-    return jsonify({"shard_to_servers": shard_to_servers, "status": "success"}), 200
-
-@app.route('/get_servers', methods=['GET'])
-async def get_servers():
-    global server_to_id
-    servers = list(server_to_id.keys())
-    return jsonify({"servers": servers, "status": "success"}), 200
-
-
-
-@app.route('/get_id_to_server', methods=['GET'])
-async def get_id_to_server():
-    global id_to_server
-    return jsonify({"id_to_server": id_to_server, "status": "success"}), 200
-
-@app.route('/get_server_to_shards_ds', methods=['GET'])
-async def get_server_to_shards_ds():
-    global server_to_shards
-    return jsonify({"server_to_shards": server_to_shards, "status": "success"}), 200
-
-@app.route('/get_available_servers_count', methods=['GET'])
-async def get_available_servers_count():
-    global server_to_id
-    global available_servers
-    count = len(server_to_id)
-    return jsonify({"available_servers_count": count, "status": "success"}), 200
-
-
-
-
-
-
-
-
-
-
-@app.route('/get_shard_to_primary_server', methods=['GET'])
-async def get_shard_to_primary_server():
-    global shard_to_primary_server
-    return jsonify({"shard_to_primary_server": shard_to_primary_server, "status": "success"}), 200
-
-
-
-@app.route('/set_shard_to_servers', methods=['POST'])
-async def set_shard_to_servers():
-    payload = request.get_json()
-    shard_to_servers_new = payload.get('shard_to_servers')
-
-    global shard_to_servers
-    for shard, servers in shard_to_servers_new.items():
-        shard_to_servers[shard] = servers
-    return jsonify({"message": "Shard to servers mapping set", "status": "success"}), 200
-
-@app.route('/set_server_to_shards', methods=['POST'])
-async def set_server_to_shards():
-    payload = request.get_json()
-    server_to_shards_new = payload.get('server_to_shards')
-
-    global server_to_shards
-    for server, shards in server_to_shards_new.items():
-        server_to_shards[server] = shards
-    return jsonify({"message": "Servers to shard mapping set", "status": "success"}), 200
-
-@app.route('/set_available_servers', methods=['POST'])
-async def set_available_servers():
-    global available_servers
-    payload = await request.get_json()
-    available_servers_new = payload.get('available_servers')
-    available_servers.clear()
-    available_servers.append(available_servers_new)
-    return jsonify({"message": "Available servers set", "status": "success"}), 200
-
-
-
-
-
-
 @app.errorhandler(Exception)
 def handle_exception(e):
     app.logger.error(f"Exception: {e}")
-    if isinstance(e, Error):
-        return jsonify({"message": e.msg, "status": "error"}), 400
-    else:
-        return jsonify({"message": "Internal server Error: check params", "status": "error"}), 500
-
+    return jsonify({"message": "Internal server Error: Check Params", "status": "error"}), 500
 
 
 @app.before_request
 async def startup():
-    app.logger.info("Starting metadata server...")
+    app.logger.info("Starting the Metadata Server")
     global available_servers
     available_servers = [i for i in range(100000, 1000000)]
     random.shuffle(available_servers)
+
+@app.after_serving
+async def cleanup():
+    app.logger.info("Stopping the Metadata Server")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
