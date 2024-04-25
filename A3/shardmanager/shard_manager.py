@@ -8,7 +8,6 @@ import os
 
 app = Quart(__name__)
 logging.basicConfig(level=logging.DEBUG)
-shard_write_lock = defaultdict(lambda: asyncio.Lock())
 SHARD_MANAGER_IMAGE_NAME = "shardmanager"
 SLEEP_TIME = 60
 PORT = 5000

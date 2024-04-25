@@ -1,35 +1,35 @@
 {
     "client": "Thunder Client",
     "collectionName": "shardDB",
-    "dateExported": "2024-03-27T06:23:54.339Z",
+    "dateExported": "2024-04-20T21:23:24.085Z",
     "version": "1.1",
     "folders": [
         {
-            "_id": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "_id": "d5f42920-751b-46b7-a5fb-246e6a01be61",
             "name": "server",
             "containerId": "",
-            "created": "2024-03-27T05:35:59.487Z",
+            "created": "2024-04-15T06:44:27.202Z",
             "sortNum": 10000
         },
         {
-            "_id": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "_id": "acfb9d69-f000-456b-a861-78035ba17b3c",
             "name": "lb",
             "containerId": "",
-            "created": "2024-03-27T05:35:59.488Z",
+            "created": "2024-04-15T06:44:27.203Z",
             "sortNum": 20000
         }
     ],
     "requests": [
         {
-            "_id": "2debf4db-b7a7-484c-9c44-c61b6479f4e7",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "_id": "998b9d95-4b5c-4526-b528-3a6c4df44b38",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "acfb9d69-f000-456b-a861-78035ba17b3c",
             "name": "init",
             "url": "/init",
             "method": "POST",
             "sortNum": 10000,
-            "created": "2024-03-27T05:35:59.487Z",
-            "modified": "2024-03-27T05:35:59.487Z",
+            "created": "2024-04-15T06:44:27.202Z",
+            "modified": "2024-04-15T06:44:27.202Z",
             "headers": [],
             "params": [],
             "body": {
@@ -40,15 +40,15 @@
             "tests": []
         },
         {
-            "_id": "7c39f02c-a458-42d3-a3a1-077724dc5634",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "_id": "38506039-0c16-447a-bda5-98338abf8c97",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
             "name": "config",
-            "url": "/config",
+            "url": "http://172.20.0.2:5000/config",
             "method": "POST",
             "sortNum": 10000,
-            "created": "2024-03-27T05:35:59.495Z",
-            "modified": "2024-03-27T05:35:59.495Z",
+            "created": "2024-04-15T06:44:27.210Z",
+            "modified": "2024-04-15T07:11:32.147Z",
             "headers": [],
             "params": [],
             "body": {
@@ -59,81 +59,15 @@
             "tests": []
         },
         {
-            "_id": "4a85594e-9d7a-48a0-921a-5e74e9a6910e",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
-            "name": "init random placement",
-            "url": "/init",
-            "method": "POST",
-            "sortNum": 15000,
-            "created": "2024-03-27T05:35:59.503Z",
-            "modified": "2024-03-27T05:35:59.503Z",
-            "headers": [],
-            "params": [],
-            "body": {
-                "type": "json",
-                "raw": "{\n  \"N\": 3,\n  \"schema\": {\n    \"columns\": [\n      \"Stud_id\",\n      \"Stud_name\",\n      \"Stud_marks\"\n    ],\n    \"dtypes\": [\n      \"Number\",\n      \"String\",\n      \"Number\"\n    ]\n  },\n  \"shards\": [\n    {\n      \"Stud_id_low\": 0,\n      \"Shard_id\": \"sh1\",\n      \"Shard_size\": 4096\n    },\n    {\n      \"Stud_id_low\": 4096,\n      \"Shard_id\": \"sh2\",\n      \"Shard_size\": 4096\n    },\n    {\n      \"Stud_id_low\": 8192,\n      \"Shard_id\": \"sh3\",\n      \"Shard_size\": 4096\n    }\n  ]\n}",
-                "form": []
-            },
-            "tests": []
-        },
-        {
-            "_id": "9141075d-7135-4f97-b1d8-b6bff5baa330",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
-            "name": "status",
-            "url": "/status",
-            "method": "GET",
-            "sortNum": 20000,
-            "created": "2024-03-27T05:35:59.488Z",
-            "modified": "2024-03-27T05:35:59.488Z",
-            "headers": [],
-            "params": [],
-            "tests": []
-        },
-        {
-            "_id": "6a5c41c7-9215-4e29-8069-684429b304be",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
-            "name": "heartbeat",
-            "url": "/heartbeat",
-            "method": "GET",
-            "sortNum": 20000,
-            "created": "2024-03-27T05:35:59.497Z",
-            "modified": "2024-03-27T05:35:59.497Z",
-            "headers": [],
-            "params": [],
-            "tests": []
-        },
-        {
-            "_id": "482cdecb-a857-415e-9a23-297526db9457",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
-            "name": "add",
-            "url": "/add",
-            "method": "POST",
-            "sortNum": 30000,
-            "created": "2024-03-27T05:35:59.489Z",
-            "modified": "2024-03-27T05:35:59.489Z",
-            "headers": [],
-            "params": [],
-            "body": {
-                "type": "json",
-                "raw": "{\n  \"n\": 2,\n  \"new_shards\": [\n    {\n      \"Stud_id_low\": 12288,\n      \"Shard_id\": \"sh5\",\n      \"Shard_size\": 4096\n    }\n  ],\n  \"servers\": {\n    \"Server4\": [\n      \"sh3\",\n      \"sh5\"\n    ],\n    \"Server[5]\": [\n      \"sh2\",\n      \"sh5\"\n    ]\n  }\n}",
-                "form": []
-            },
-            "tests": []
-        },
-        {
-            "_id": "b1ccfea3-63cd-4ee9-8f05-b2bbdc4b7d99",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "_id": "ae72fa6b-cd99-4ee4-ae3e-5382b63a5b53",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
             "name": "copy",
             "url": "/copy",
             "method": "GET",
-            "sortNum": 30000,
-            "created": "2024-03-27T05:35:59.498Z",
-            "modified": "2024-03-27T05:35:59.498Z",
+            "sortNum": 15000,
+            "created": "2024-04-15T06:44:27.212Z",
+            "modified": "2024-04-15T06:44:27.212Z",
             "headers": [],
             "params": [],
             "body": {
@@ -144,34 +78,15 @@
             "tests": []
         },
         {
-            "_id": "3ce531d2-4f01-4a0b-9f60-96394ed5a5d5",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
-            "name": "rm",
-            "url": "/rm",
-            "method": "DELETE",
-            "sortNum": 40000,
-            "created": "2024-03-27T05:35:59.490Z",
-            "modified": "2024-03-27T05:35:59.490Z",
-            "headers": [],
-            "params": [],
-            "body": {
-                "type": "json",
-                "raw": "{\n  \"n\": 1,\n  \"servers\": [\n    \"Server1\"\n  ]\n}",
-                "form": []
-            },
-            "tests": []
-        },
-        {
-            "_id": "9af6b429-526b-4ee0-af92-781913da4550",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "_id": "3806c7fa-910c-4dec-b808-5aa675153848",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
             "name": "read",
             "url": "/read",
             "method": "POST",
-            "sortNum": 40000,
-            "created": "2024-03-27T05:35:59.499Z",
-            "modified": "2024-03-27T05:35:59.499Z",
+            "sortNum": 17500,
+            "created": "2024-04-15T06:44:27.213Z",
+            "modified": "2024-04-15T06:44:27.213Z",
             "headers": [],
             "params": [],
             "body": {
@@ -182,15 +97,84 @@
             "tests": []
         },
         {
-            "_id": "a0d7f7a1-7b1c-42c2-b44c-5b51f7ffa47d",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "_id": "7450daa1-b668-4f19-8411-3a6dfb9e1823",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
+            "name": "write",
+            "url": "/write",
+            "method": "POST",
+            "sortNum": 18750,
+            "created": "2024-04-15T06:44:27.214Z",
+            "modified": "2024-04-15T17:15:02.322Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shard\": \"sh5\",\n  \"data\": [\n    {\n      \"Stud_id\": 10000,\n      \"Stud_name\": \"GHI\",\n      \"Stud_marks\": 27\n    }\n  ]\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "7f0687dc-69c3-4796-82ca-942674eb444a",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "acfb9d69-f000-456b-a861-78035ba17b3c",
+            "name": "status",
+            "url": "/status",
+            "method": "GET",
+            "sortNum": 20000,
+            "created": "2024-04-15T06:44:27.203Z",
+            "modified": "2024-04-15T06:44:27.203Z",
+            "headers": [],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "8585a6f3-feab-44df-a895-7aa9d1e871e8",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "acfb9d69-f000-456b-a861-78035ba17b3c",
+            "name": "add",
+            "url": "/add",
+            "method": "POST",
+            "sortNum": 30000,
+            "created": "2024-04-15T06:44:27.204Z",
+            "modified": "2024-04-15T06:44:27.204Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"n\": 2,\n  \"new_shards\": [\n    {\n      \"Stud_id_low\": 12288,\n      \"Shard_id\": \"sh5\",\n      \"Shard_size\": 4096\n    }\n  ],\n  \"servers\": {\n    \"Server4\": [\n      \"sh3\",\n      \"sh5\"\n    ],\n    \"Server[5]\": [\n      \"sh2\",\n      \"sh5\"\n    ]\n  }\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "ae96715a-8f66-4e0d-a0ba-555ef94a0f3d",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "acfb9d69-f000-456b-a861-78035ba17b3c",
+            "name": "rm",
+            "url": "/rm",
+            "method": "DELETE",
+            "sortNum": 40000,
+            "created": "2024-04-15T06:44:27.205Z",
+            "modified": "2024-04-18T16:46:47.139Z",
+            "headers": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"n\": 1,\n  \"servers\": [\n    \"Server1\"\n  ]\n}",
+                "form": []
+            }
+        },
+        {
+            "_id": "fa118b70-f815-4a6e-85c7-b2fc874458da",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "acfb9d69-f000-456b-a861-78035ba17b3c",
             "name": "read",
             "url": "/read",
             "method": "POST",
             "sortNum": 50000,
-            "created": "2024-03-27T05:35:59.491Z",
-            "modified": "2024-03-27T05:38:52.951Z",
+            "created": "2024-04-15T06:44:27.206Z",
+            "modified": "2024-04-15T06:44:27.206Z",
             "headers": [],
             "params": [],
             "body": {
@@ -201,34 +185,15 @@
             "tests": []
         },
         {
-            "_id": "d224ff89-2aa1-4228-b73c-2a35b410f139",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
-            "name": "write",
-            "url": "/write",
-            "method": "POST",
-            "sortNum": 50000,
-            "created": "2024-03-27T05:35:59.500Z",
-            "modified": "2024-03-27T05:35:59.500Z",
-            "headers": [],
-            "params": [],
-            "body": {
-                "type": "json",
-                "raw": "{\n  \"shard\": \"sh2\",\n  \"curr_idx\": 507,\n  \"data\": [\n    {\n      \"Stud_id\": 2255,\n      \"Stud_name\": \"GHI\",\n      \"Stud_marks\": 27\n    }\n  ]\n}",
-                "form": []
-            },
-            "tests": []
-        },
-        {
-            "_id": "99a00ea3-c3af-4db6-8c53-5f5daf144817",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "_id": "387cb2f1-eb51-4f37-a470-5d35787de2e5",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "acfb9d69-f000-456b-a861-78035ba17b3c",
             "name": "write",
             "url": "/write",
             "method": "POST",
             "sortNum": 60000,
-            "created": "2024-03-27T05:35:59.492Z",
-            "modified": "2024-03-27T05:35:59.492Z",
+            "created": "2024-04-15T06:44:27.207Z",
+            "modified": "2024-04-16T00:29:01.128Z",
             "headers": [],
             "params": [],
             "body": {
@@ -239,15 +204,15 @@
             "tests": []
         },
         {
-            "_id": "31695c55-39a8-4b9b-9bed-76dcd2c3bb18",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "_id": "ec4c7e35-1c68-411e-b920-2732c3561f63",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
             "name": "update",
             "url": "/update",
             "method": "PUT",
             "sortNum": 60000,
-            "created": "2024-03-27T05:35:59.501Z",
-            "modified": "2024-03-27T05:35:59.501Z",
+            "created": "2024-04-15T06:44:27.216Z",
+            "modified": "2024-04-15T06:44:27.216Z",
             "headers": [],
             "params": [],
             "body": {
@@ -258,34 +223,15 @@
             "tests": []
         },
         {
-            "_id": "12a18411-cc70-4530-81ab-bd74ee8ad878",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
-            "name": "update",
-            "url": "/update",
-            "method": "PUT",
-            "sortNum": 70000,
-            "created": "2024-03-27T05:35:59.493Z",
-            "modified": "2024-03-27T06:02:00.939Z",
-            "headers": [],
-            "params": [],
-            "body": {
-                "type": "json",
-                "raw": "{\n  \"Stud_id\": 2255,\n  \"data\": {\n    \"Stud_id\": 2255,\n    \"Stud_name\": \"GHI\",\n    \"Stud_marks\": 50\n  }\n}",
-                "form": []
-            },
-            "tests": []
-        },
-        {
-            "_id": "86e0ffb4-5690-4a46-a59b-04c45ac7f784",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "892f398d-90c5-4ce9-a369-2a375f1b0304",
+            "_id": "df1518c0-c2e2-4f22-aead-c8486492cbc5",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
             "name": "del",
             "url": "/del",
             "method": "DELETE",
-            "sortNum": 70000,
-            "created": "2024-03-27T05:35:59.502Z",
-            "modified": "2024-03-27T05:35:59.502Z",
+            "sortNum": 62500,
+            "created": "2024-04-15T06:44:27.217Z",
+            "modified": "2024-04-15T06:44:27.217Z",
             "headers": [],
             "params": [],
             "body": {
@@ -296,20 +242,110 @@
             "tests": []
         },
         {
-            "_id": "db797aae-d228-4065-8cfc-d67ca3b19039",
-            "colId": "ec563ac8-c0ea-465f-b176-61a9875dcf25",
-            "containerId": "5a30700e-ffbe-4f7e-9307-7058418f0f62",
+            "_id": "2a570324-7089-406c-aafa-ee38d95a6c64",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
+            "name": "heartbeat",
+            "url": "/heartbeat",
+            "method": "GET",
+            "sortNum": 65000,
+            "created": "2024-04-15T06:44:27.211Z",
+            "modified": "2024-04-15T06:44:27.211Z",
+            "headers": [],
+            "params": [],
+            "tests": []
+        },
+        {
+            "_id": "b79dabf8-eaa2-4e0f-9877-f148b7661a29",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "acfb9d69-f000-456b-a861-78035ba17b3c",
+            "name": "update",
+            "url": "/update",
+            "method": "PUT",
+            "sortNum": 70000,
+            "created": "2024-04-15T06:44:27.208Z",
+            "modified": "2024-04-15T06:44:27.208Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"Stud_id\": 2255,\n  \"data\": {\n    \"Stud_id\": 2255,\n    \"Stud_name\": \"GHI\",\n    \"Stud_marks\": 50\n  }\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "e3010e03-f631-4790-8554-50c496708c12",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "acfb9d69-f000-456b-a861-78035ba17b3c",
             "name": "del",
             "url": "/del",
             "method": "DELETE",
             "sortNum": 80000,
-            "created": "2024-03-27T05:35:59.494Z",
-            "modified": "2024-03-27T05:35:59.494Z",
+            "created": "2024-04-15T06:44:27.209Z",
+            "modified": "2024-04-15T06:44:27.209Z",
             "headers": [],
             "params": [],
             "body": {
                 "type": "json",
                 "raw": "{\n  \"Stud_id\": 2255\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "bda6ae7f-b80c-4fdd-bfb4-040ca934e4b4",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
+            "name": "get_log_count",
+            "url": "/get_log_count",
+            "method": "GET",
+            "sortNum": 90000,
+            "created": "2024-04-15T14:53:39.580Z",
+            "modified": "2024-04-15T14:53:57.639Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shard\": \"sh1\"\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "d8a67aaa-ad0b-4a27-83cf-0d838744d8f5",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
+            "name": "get_log",
+            "url": "/get_log",
+            "method": "GET",
+            "sortNum": 100000,
+            "created": "2024-04-15T14:54:12.933Z",
+            "modified": "2024-04-15T14:54:26.417Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shard\": \"sh1\"\n}",
+                "form": []
+            },
+            "tests": []
+        },
+        {
+            "_id": "953f34d8-97f5-4e1c-a3b5-ca9afaa99c4d",
+            "colId": "6928915e-b1df-46f7-882c-ef1545eebc3b",
+            "containerId": "d5f42920-751b-46b7-a5fb-246e6a01be61",
+            "name": "set_primary",
+            "url": "/set_primary",
+            "method": "POST",
+            "sortNum": 110000,
+            "created": "2024-04-15T14:54:45.531Z",
+            "modified": "2024-04-15T14:55:18.000Z",
+            "headers": [],
+            "params": [],
+            "body": {
+                "type": "json",
+                "raw": "{\n  \"shard\": \"sh1\"\n}",
                 "form": []
             },
             "tests": []
