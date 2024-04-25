@@ -22,13 +22,33 @@ In case of delete opearation, only `<Stud_id>` is stored.
 ## API Endpoints
 1. **Server**
     - `POST /write` : 
-        - Primary server: makes change to log and send write request to other servers
-        - Secondary server: update log and write data entries in a shard
-    - `PUT /update` : updates a particular data entry in a shard in a particular server container
-    - `del /delete` : deletes a particular data entry (based on Stud id) in a shard in a particular server container.
+        - Primary server: makes change to log and send write request to other servers.
+        - Secondary server: update log and write data entries in a shard.
+    - `PUT /update` : updates a particular data entry in a shard in a particular server container.
+    - `DELETE /del` : deletes a particular data entry (based on Stud id) in a shard in a particular server container.
+    - `POST /read` : reads records between low and high Student IDs.
+    - `GET /get_log_count` : gets the length of the server's logfile.
+    - `GET /get_log` : gets the entire logfile of the server.
+    - `POST /set_primary` : set the current server as primary and update metadata.
+
 
 2. **Load Balancer**
-    - `DELETE /rm` : removes server instances in the load balance
+    - `POST /init` : initialize the system with required number of shard replicas and server instances.
+    - `GET /status` : gets status of system.
+    - `POST /add` : add servers and shards to the system.
+    - `DELETE /rm` : removes server instances in the load balancer.
+    - `POST /read`
+    - `POST /write`
+    - `PUT /update`
+    - `DELETE /del`
+
+
+3. **Shard Manager**
+    - `GET /primary_elect` : This route finds the servers that currently contain copies of a given shard as well the log sizes of each server. The server with the longest LogFile is set as the primary server.
+
+
+4. **Metadata**
+    - Multiple getter/setter functions to update common metadata. Each route has metadata locks applied.
 
 ## Steps to Run
 1. Start system
