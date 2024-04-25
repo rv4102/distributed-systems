@@ -1,4 +1,4 @@
-# Design Choices
+# Analysis and Design Documentation
 
 ## Overview
 This assignment involves implementing a sharded database system for a single table `StudT`, distributed across multiple shards in different server containers. The system utilizes a `Write-Ahead Logging (WAL)` mechanism to ensure consistency among shard replicas across servers. Shards are subparts of the database managing a limited number of entries, with the ability to be replicated for parallel read operations.
@@ -42,3 +42,36 @@ sudo make up
 sudo make down
 ```
 
+## Analysis
+
+1. **The read and write speed for 1000 writes and 1000 reads in the default configuration given in task 2**
+- Total read time: 141.71012997627258  seconds
+- Total write time: 494.39242792129517  seconds  
+- Average read time: 1.417101299762726  seconds
+- Average write time: 4.943924279212951  seconds
+
+    ![A-1-Read Time](./analysis/A1_read_time.png)
+    
+    ![A-1-Write Time](./analysis/A1_write_time.png)
+
+2. **The read and write speed for 1000 writes and 1000 reads when the number of shard replicas is increased (to 7) from the configuration (init endpoint)**
+- Total read time: 131.94010829925537  seconds
+- Total write time: 488.73529505729675  seconds
+- Average read time: 1.3194010829925538  seconds
+- Average write time: 4.887352950572968  seconds
+
+    ![A-2-Read Time](./analysis/A2_read_time.png)
+    
+    ![A-2-Write Time](./analysis/A2_write_time.png)
+
+**Note - Average Read Time decreased in A2 in comparison to A1 whereas Average Write Time also decreased in A2 in comparison to A1 due to increase in the number of the shard replicas.**
+
+3. **Increase the number of Servers (to 10) by adding new servers and increase the number of shards (shard to 6, shard replicas to 8). Define the (init endpoint) configurations according to your choice. Report the write speed up for 1000 writes and read speed up for 1000 reads.**
+
+    ![A3_total_read_time](./analysis/A3_total_read_time.png)
+
+    ![A3_total_write_time](./analysis/A3_total_write_time.png)
+
+    ![A3_mean_read_time](./analysis/A3_mean_read_time.png)
+
+    ![A3_mean_write_time](./analysis/A3_mean_write_time.png)
