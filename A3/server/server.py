@@ -16,6 +16,9 @@ WAL = "./LOGS/WALOG.txt"
 server_name = os.environ['SERVER_NAME']
 
 
+
+def sendlog(shard):
+    return
 async def get_shard_servers(shard_id):
     async with aiohttp.ClientSession() as session:
         payload = {"shard": shard_id}
@@ -88,6 +91,7 @@ def copy_data():
             return jsonify({"message": f"{server_name}:{shard} NOT FOUND", "status": "error"}), 404
         sql.UseDB(dbname=shard)
         response_data[shard] = sql.Select(table_name='studT')
+        sendlog(shard)
     response_data["status"] = "success"
 
     return jsonify(response_data), 200
