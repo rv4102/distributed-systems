@@ -3,5 +3,5 @@ Flask[async]==3.0.0
 aioflask==0.4.0
 mysql-connector-python==8.3.0
 Quart==0.19.4
-aiohttp==3.9.3
+aiohttp==3.9.4
 sortedcontainers==2.4.0
